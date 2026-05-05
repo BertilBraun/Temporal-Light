@@ -64,12 +64,14 @@ async def execute_activity(
     failed_attempt_count = workflow_context.count_failed_events(step_index)
 
     # --- Execute ---
+    started_at = datetime.now(timezone.utc)
     try:
         result = await asyncio.wait_for(
             activity_function(*positional_arguments, **keyword_arguments),
             timeout=activity_policy.timeout_seconds,
         )
     except Exception as execution_error:
+        duration_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
         await _handle_activity_failure(
             workflow_context=workflow_context,
             step_index=step_index,
@@ -77,18 +79,24 @@ async def execute_activity(
             activity_policy=activity_policy,
             failed_attempt_count=failed_attempt_count,
             execution_error=execution_error,
+            duration_seconds=duration_seconds,
         )
         raise WorkflowSuspended(
             f"Activity '{step_name}' failed on attempt {failed_attempt_count}."
         )
 
     # --- Success ---
+    duration_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
     await queries.write_event(
         workflow_id=workflow_context.workflow_id,
         step_index=step_index,
         step_name=step_name,
         event_type=EventType.COMPLETED,
-        payload={"result": result},
+        payload={
+            "result": result,
+            "duration_seconds": duration_seconds,
+            "attempts_total": failed_attempt_count + 1,
+        },
     )
     return result
 
@@ -100,11 +108,13 @@ async def _handle_activity_failure(
     activity_policy: ActivityPolicy,
     failed_attempt_count: int,
     execution_error: Exception,
+    duration_seconds: float,
 ) -> None:
     error_payload = {
         "error_type": type(execution_error).__name__,
         "error_message": str(execution_error),
         "attempt": failed_attempt_count,
+        "duration_seconds": duration_seconds,
     }
     await queries.write_event(
         workflow_id=workflow_context.workflow_id,

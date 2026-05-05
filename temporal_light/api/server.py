@@ -116,11 +116,30 @@ async def send_signal(workflow_id: str, request: SendSignalRequest) -> None:
 
 
 @app.get("/workflows", response_model=list[WorkflowStatusResponse])
-async def list_workflows() -> list[WorkflowStatusResponse]:
+async def list_workflows(
+    status: str | None = None,
+    name: str | None = None,
+    limit: int = 100,
+) -> list[WorkflowStatusResponse]:
+    """List workflows with optional filtering by status and/or name."""
+    conditions = []
+    parameters: list[Any] = []
+
+    if status is not None:
+        parameters.append(status)
+        conditions.append(f"status = ${len(parameters)}")
+    if name is not None:
+        parameters.append(name)
+        conditions.append(f"name = ${len(parameters)}")
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    parameters.append(limit)
+
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM workflows ORDER BY created_at DESC LIMIT 100"
+            f"SELECT * FROM workflows {where_clause} ORDER BY created_at DESC LIMIT ${len(parameters)}",
+            *parameters,
         )
     return [_workflow_record_to_response(queries._row_to_workflow_record(row)) for row in rows]
 

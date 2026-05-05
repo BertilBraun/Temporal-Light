@@ -1,0 +1,10 @@
+services:
+  api:
+    command: uvicorn temporal_light.api.server:app --reload --host 0.0.0.0 --port 8080
+    volumes:
+      - .:/app
+
+  worker:
+    command: watchfiles "python example/worker_entry.py" .
+    volumes:
+      - .:/app
