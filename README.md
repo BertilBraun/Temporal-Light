@@ -16,27 +16,22 @@ The built-in dashboard (served at `GET /`) shows all workflows with live event s
 
 ## Architecture
 
-```
-                    ┌──────────────────────────────────┐
-                    │            Postgres               │
-                    │  workflows / events / workers     │
-                    └───┬──────────────────────┬────────┘
-                        │                      │
-              claim/write│              LISTEN/ │NOTIFY
-                         │                      │
-               ┌─────────▼──────┐    ┌──────────▼──────┐
-               │   Worker(s)    │    │    API Server    │
-               │                │    │                  │
-               │ - poll DB      │    │ - start workflow │
-               │ - replay       │    │ - send signal    │
-               │ - execute      │    │ - SSE stream     │
-               │ - write events │    │ - dashboard      │
-               └────────────────┘    └────────┬─────────┘
-                                              │ SSE / HTTP
-                                     ┌────────▼─────────┐
-                                     │   Client SDK     │
-                                     │  (any language)  │
-                                     └──────────────────┘
+```mermaid
+flowchart TB
+    PG[(Postgres\nworkflows / events / workers)]
+
+    PG -->|LISTEN/NOTIFY| API
+    W -->|claim / write events| PG
+
+    subgraph Workers
+        W[Worker\n─────────────\npoll DB\nreplay history\nexecute steps\nwrite events]
+    end
+
+    subgraph API Server
+        API[API Server\n─────────────\nstart workflow\nsend signal\nSSE stream\ndashboard]
+    end
+
+    API -->|SSE / HTTP| SDK[Client SDK\nany language]
 ```
 
 **Four independent components:**
