@@ -18,7 +18,7 @@ def test_workflow_preserves_function_name() -> None:
     async def my_workflow() -> None:
         pass
 
-    assert my_workflow.__name__ == "my_workflow"
+    assert my_workflow.__name__ == 'my_workflow'
 
 
 def test_workflow_sets_is_workflow_flag() -> None:
@@ -35,16 +35,14 @@ def test_workflow_sets_is_workflow_flag() -> None:
 
 
 @pytest.mark.parametrize(
-    "retries, timeout, backoff_seconds",
+    'retries, timeout, backoff_seconds',
     [
         (0, 60.0, 5.0),
         (3, 30.0, 2.0),
         (10, 600.0, 60.0),
     ],
 )
-def test_activity_stores_policy_on_wrapper(
-    retries: int, timeout: float, backoff_seconds: float
-) -> None:
+def test_activity_stores_policy_on_wrapper(retries: int, timeout: float, backoff_seconds: float) -> None:
     @activity(retries=retries, timeout=timeout, backoff_seconds=backoff_seconds)
     async def my_activity() -> None:
         pass
@@ -60,8 +58,8 @@ def test_activity_preserves_function_name() -> None:
     async def process_payment() -> None:
         pass
 
-    assert process_payment.__name__ == "process_payment"
-    assert process_payment.__qualname__.endswith("process_payment")
+    assert process_payment.__name__ == 'process_payment'
+    assert process_payment.__qualname__.endswith('process_payment')
 
 
 def test_activity_sets_is_activity_flag() -> None:
@@ -83,19 +81,19 @@ async def test_activity_outside_workflow_context_calls_function_directly() -> No
     @activity(retries=2, timeout=10)
     async def tracked_activity(value: int, label: str) -> str:
         call_log.append((value, label))
-        return f"{label}-{value}"
+        return f'{label}-{value}'
 
-    result = await tracked_activity(42, "test")
-    assert result == "test-42"
-    assert call_log == [(42, "test")]
+    result = await tracked_activity(42, 'test')
+    assert result == 'test-42'
+    assert call_log == [(42, 'test')]
 
 
 async def test_activity_outside_workflow_context_propagates_exceptions() -> None:
     @activity(retries=3, timeout=10)
     async def failing_activity() -> None:
-        raise ValueError("boom")
+        raise ValueError('boom')
 
-    with pytest.raises(ValueError, match="boom"):
+    with pytest.raises(ValueError, match='boom'):
         await failing_activity()
 
 
@@ -104,8 +102,8 @@ async def test_activity_outside_workflow_context_receives_keyword_arguments() ->
 
     @activity()
     async def kwarg_activity(*, name: str, count: int) -> None:
-        received["name"] = name
-        received["count"] = count
+        received['name'] = name
+        received['count'] = count
 
-    await kwarg_activity(name="hello", count=3)
-    assert received == {"name": "hello", "count": 3}
+    await kwarg_activity(name='hello', count=3)
+    assert received == {'name': 'hello', 'count': 3}

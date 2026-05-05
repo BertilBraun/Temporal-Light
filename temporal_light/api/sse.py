@@ -15,9 +15,7 @@ from ..models import EventRecord, EventType
 
 logger = logging.getLogger(__name__)
 
-_TERMINAL_EVENT_TYPES = frozenset(
-    {EventType.WORKFLOW_COMPLETED, EventType.WORKFLOW_FAILED}
-)
+_TERMINAL_EVENT_TYPES = frozenset({EventType.WORKFLOW_COMPLETED, EventType.WORKFLOW_FAILED})
 
 # One shared LISTEN connection for the entire API process.
 _notify_connection: asyncpg.Connection | None = None
@@ -29,7 +27,7 @@ _subscriber_queues: dict[str, list[asyncio.Queue[None]]] = defaultdict(list)
 async def initialize_notify_listener(database_url: str) -> None:
     global _notify_connection
     _notify_connection = await asyncpg.connect(database_url)
-    await _notify_connection.add_listener("workflow_events", _on_notify)
+    await _notify_connection.add_listener('workflow_events', _on_notify)
 
 
 async def close_notify_listener() -> None:
@@ -96,15 +94,15 @@ async def stream_workflow_events(
 
 def _format_sse(event: EventRecord) -> str:
     data = _event_to_sse_payload(event)
-    return f"data: {json.dumps(data)}\n\n"
+    return f'data: {json.dumps(data)}\n\n'
 
 
 def _event_to_sse_payload(event: EventRecord) -> dict[str, Any]:
     base: dict[str, Any] = {
-        "type": event.event_type.value,
-        "step_index": event.step_index,
-        "step_name": event.step_name,
-        "timestamp": event.timestamp.isoformat(),
+        'type': event.event_type.value,
+        'step_index': event.step_index,
+        'step_name': event.step_name,
+        'timestamp': event.timestamp.isoformat(),
     }
     if event.payload:
         base.update(event.payload)

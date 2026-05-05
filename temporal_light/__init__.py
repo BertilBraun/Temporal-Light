@@ -5,12 +5,12 @@ from .sleep import sleep
 from .worker.worker import Worker
 
 __all__ = [
-    "Worker",
-    "workflow",
-    "activity",
-    "sleep",
-    "wait_for_signal",
-    "Client",
-    "WorkflowHandle",
-    "WorkflowFailedError",
+    'Worker',
+    'workflow',
+    'activity',
+    'sleep',
+    'wait_for_signal',
+    'Client',
+    'WorkflowHandle',
+    'WorkflowFailedError',
 ]

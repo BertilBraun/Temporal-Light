@@ -31,7 +31,7 @@ async def update_worker_heartbeat(worker_identifier: str) -> None:
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE workers SET last_seen = NOW() WHERE worker_id = $1",
+            'UPDATE workers SET last_seen = NOW() WHERE worker_id = $1',
             worker_identifier,
         )
 
@@ -70,7 +70,7 @@ async def create_workflow(
                 """,
                 workflow_id,
                 EventType.STARTED.value,
-                {"input": workflow_input},
+                {'input': workflow_input},
                 now,
             )
 
@@ -79,7 +79,7 @@ async def get_workflow(workflow_id: str) -> WorkflowRecord | None:
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM workflows WHERE workflow_id = $1",
+            'SELECT * FROM workflows WHERE workflow_id = $1',
             workflow_id,
         )
     if row is None:
@@ -120,9 +120,7 @@ async def claim_next_workflow(worker_identifier: str) -> WorkflowRecord | None:
             if row is None:
                 return None
 
-            locked_until = datetime.now(timezone.utc) + timedelta(
-                seconds=lock_duration_seconds
-            )
+            locked_until = datetime.now(timezone.utc) + timedelta(seconds=lock_duration_seconds)
             await conn.execute(
                 """
                 UPDATE workflows
@@ -131,18 +129,18 @@ async def claim_next_workflow(worker_identifier: str) -> WorkflowRecord | None:
                 """,
                 worker_identifier,
                 locked_until,
-                row["workflow_id"],
+                row['workflow_id'],
             )
 
             return WorkflowRecord(
-                workflow_id=row["workflow_id"],
-                name=row["name"],
-                status=WorkflowStatus(row["status"]),
-                run_at=row["run_at"],
+                workflow_id=row['workflow_id'],
+                name=row['name'],
+                status=WorkflowStatus(row['status']),
+                run_at=row['run_at'],
                 locked_by=worker_identifier,
                 locked_until=locked_until,
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
             )
 
 
@@ -153,7 +151,7 @@ async def update_workflow_status(
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE workflows SET status = $1, updated_at = NOW() WHERE workflow_id = $2",
+            'UPDATE workflows SET status = $1, updated_at = NOW() WHERE workflow_id = $2',
             status.value,
             workflow_id,
         )
@@ -164,7 +162,7 @@ async def update_workflow_run_at(workflow_id: str, run_at: datetime) -> None:
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE workflows SET run_at = $1, updated_at = NOW() WHERE workflow_id = $2",
+            'UPDATE workflows SET run_at = $1, updated_at = NOW() WHERE workflow_id = $2',
             run_at,
             workflow_id,
         )
@@ -208,7 +206,7 @@ async def load_event_history(workflow_id: str) -> list[EventRecord]:
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM events WHERE workflow_id = $1 ORDER BY id",
+            'SELECT * FROM events WHERE workflow_id = $1 ORDER BY id',
             workflow_id,
         )
     return [_row_to_event_record(row) for row in rows]
@@ -219,7 +217,7 @@ async def load_events_after(workflow_id: str, after_event_id: int) -> list[Event
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM events WHERE workflow_id = $1 AND id > $2 ORDER BY id",
+            'SELECT * FROM events WHERE workflow_id = $1 AND id > $2 ORDER BY id',
             workflow_id,
             after_event_id,
         )
@@ -276,7 +274,7 @@ async def write_signal_and_wake_workflow(
                 """,
                 workflow_id,
                 EventType.SIGNAL.value,
-                {"signal_type": signal_type, "payload": signal_payload},
+                {'signal_type': signal_type, 'payload': signal_payload},
             )
             await conn.execute(
                 """
@@ -299,24 +297,24 @@ async def write_signal_and_wake_workflow(
 
 def _row_to_workflow_record(row: asyncpg.Record) -> WorkflowRecord:
     return WorkflowRecord(
-        workflow_id=row["workflow_id"],
-        name=row["name"],
-        status=WorkflowStatus(row["status"]),
-        run_at=row["run_at"],
-        locked_by=row["locked_by"],
-        locked_until=row["locked_until"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        workflow_id=row['workflow_id'],
+        name=row['name'],
+        status=WorkflowStatus(row['status']),
+        run_at=row['run_at'],
+        locked_by=row['locked_by'],
+        locked_until=row['locked_until'],
+        created_at=row['created_at'],
+        updated_at=row['updated_at'],
     )
 
 
 def _row_to_event_record(row: asyncpg.Record) -> EventRecord:
     return EventRecord(
-        event_id=row["id"],
-        workflow_id=row["workflow_id"],
-        step_index=row["step_index"],
-        step_name=row["step_name"],
-        event_type=EventType(row["event_type"]),
-        payload=row["payload"],
-        timestamp=row["timestamp"],
+        event_id=row['id'],
+        workflow_id=row['workflow_id'],
+        step_index=row['step_index'],
+        step_name=row['step_name'],
+        event_type=EventType(row['event_type']),
+        payload=row['payload'],
+        timestamp=row['timestamp'],
     )

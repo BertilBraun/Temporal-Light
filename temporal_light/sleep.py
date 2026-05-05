@@ -29,7 +29,7 @@ async def sleep(
 
     existing_sleep_event = workflow_context.find_event(step_index, EventType.SLEEP)
     if existing_sleep_event is not None:
-        wakeup_at_raw: str = existing_sleep_event.payload["wakeup_at"]
+        wakeup_at_raw: str = existing_sleep_event.payload['wakeup_at']
         wakeup_at = datetime.fromisoformat(wakeup_at_raw)
         if datetime.now(timezone.utc) >= wakeup_at:
             return
@@ -39,7 +39,7 @@ async def sleep(
             workflow_id=workflow_context.workflow_id,
             run_at=wakeup_at,
         )
-        raise WorkflowSuspended(f"Re-suspended sleep at step {step_index}.")
+        raise WorkflowSuspended(f'Re-suspended sleep at step {step_index}.')
 
     total_seconds = seconds + minutes * 60 + hours * 3600 + days * 86400
     wakeup_at = datetime.now(timezone.utc) + timedelta(seconds=total_seconds)
@@ -47,14 +47,12 @@ async def sleep(
     await queries.write_event(
         workflow_id=workflow_context.workflow_id,
         step_index=step_index,
-        step_name="sleep",
+        step_name='sleep',
         event_type=EventType.SLEEP,
-        payload={"wakeup_at": wakeup_at.isoformat()},
+        payload={'wakeup_at': wakeup_at.isoformat()},
     )
     await queries.update_workflow_run_at(
         workflow_id=workflow_context.workflow_id,
         run_at=wakeup_at,
     )
-    raise WorkflowSuspended(f"Workflow sleeping until {wakeup_at.isoformat()}.")
-
-
+    raise WorkflowSuspended(f'Workflow sleeping until {wakeup_at.isoformat()}.')

@@ -7,21 +7,21 @@ from typing import Any
 
 
 class WorkflowStatus(Enum):
-    RUNNING = "running"
-    WAITING = "waiting"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    RUNNING = 'running'
+    WAITING = 'waiting'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
 
 
 class EventType(Enum):
-    STARTED = "started"
-    SCHEDULED = "scheduled"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SLEEP = "sleep"
-    SIGNAL = "signal"
-    WORKFLOW_COMPLETED = "workflow_completed"
-    WORKFLOW_FAILED = "workflow_failed"
+    STARTED = 'started'
+    SCHEDULED = 'scheduled'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+    SLEEP = 'sleep'
+    SIGNAL = 'signal'
+    WORKFLOW_COMPLETED = 'workflow_completed'
+    WORKFLOW_FAILED = 'workflow_failed'
 
 
 @dataclass(frozen=True)

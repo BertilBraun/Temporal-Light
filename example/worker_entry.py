@@ -10,6 +10,6 @@ logging.basicConfig(level=logging.INFO)
 Worker(
     workflow_functions=[order_flow],
     activity_functions=[charge_payment, send_receipt, cancel_order],
-    database_url=os.environ["DATABASE_URL"],
-    worker_concurrency=int(os.environ.get("WORKER_CONCURRENCY", "4")),
+    database_url=os.environ['DATABASE_URL'],
+    worker_concurrency=int(os.environ.get('WORKER_CONCURRENCY', '4')),
 ).run()

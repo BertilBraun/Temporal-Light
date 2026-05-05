@@ -31,7 +31,7 @@ async def run_scheduler_loop(
     active_tasks: set[asyncio.Task[None]] = set()
     worker_heartbeat_task = asyncio.create_task(
         _worker_heartbeat_loop(worker_identifier),
-        name=f"worker-heartbeat-{worker_identifier}",
+        name=f'worker-heartbeat-{worker_identifier}',
     )
 
     try:
@@ -56,7 +56,7 @@ async def run_scheduler_loop(
             had_work = True
             task = asyncio.create_task(
                 _run_workflow_with_heartbeat(workflow_runner, workflow_record),
-                name=f"workflow-{workflow_record.workflow_id}",
+                name=f'workflow-{workflow_record.workflow_id}',
             )
             active_tasks.add(task)
 
@@ -79,14 +79,12 @@ async def _run_workflow_with_heartbeat(
     """Run a workflow alongside a heartbeat task that keeps its lock alive."""
     heartbeat_task = asyncio.create_task(
         _workflow_lock_heartbeat_loop(workflow_record.workflow_id),
-        name=f"heartbeat-{workflow_record.workflow_id}",
+        name=f'heartbeat-{workflow_record.workflow_id}',
     )
     try:
         await workflow_runner.run_workflow(workflow_record)
     except Exception:
-        logger.exception(
-            "Unexpected error running workflow %s", workflow_record.workflow_id
-        )
+        logger.exception('Unexpected error running workflow %s', workflow_record.workflow_id)
     finally:
         heartbeat_task.cancel()
         try:
@@ -102,7 +100,7 @@ async def _workflow_lock_heartbeat_loop(workflow_id: str) -> None:
         try:
             await queries.extend_workflow_lock(workflow_id)
         except Exception:
-            logger.exception("Failed to extend lock for workflow %s", workflow_id)
+            logger.exception('Failed to extend lock for workflow %s', workflow_id)
 
 
 async def _worker_heartbeat_loop(worker_identifier: str) -> None:
@@ -112,6 +110,4 @@ async def _worker_heartbeat_loop(worker_identifier: str) -> None:
         try:
             await queries.update_worker_heartbeat(worker_identifier)
         except Exception:
-            logger.exception(
-                "Failed to update heartbeat for worker %s", worker_identifier
-            )
+            logger.exception('Failed to update heartbeat for worker %s', worker_identifier)

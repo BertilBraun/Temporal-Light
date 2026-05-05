@@ -11,10 +11,8 @@ from temporal_light.db.queries import (
     load_event_history,
     register_worker,
     write_event,
-    write_signal_and_wake_workflow,
 )
 from temporal_light.decorators import activity, workflow
-from temporal_light.exceptions import DivergenceError
 from temporal_light.models import EventType, WorkflowStatus
 from temporal_light.worker.runner import WorkflowRunner
 

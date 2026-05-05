@@ -23,7 +23,7 @@ class Worker:
         Worker(
             workflows=[order_flow],
             activities=[process_payment, send_receipt],
-            database_url=os.environ["DATABASE_URL"],
+            database_url=os.environ['DATABASE_URL'],
         ).run()
 
     workflow_functions: list of functions decorated with @workflow.
@@ -56,13 +56,13 @@ class Worker:
         try:
             asyncio.run(self._run_async())
         except KeyboardInterrupt:
-            logger.info("Worker shutting down.")
+            logger.info('Worker shutting down.')
 
     async def _run_async(self) -> None:
         await connection.initialize_connection_pool(self.database_url)
         try:
             worker_identifier = str(uuid.uuid4())
-            logger.info("Worker starting. id=%s", worker_identifier)
+            logger.info('Worker starting. id=%s', worker_identifier)
             runner = WorkflowRunner(self.workflow_registry)
             await run_scheduler_loop(
                 workflow_runner=runner,

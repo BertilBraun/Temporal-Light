@@ -31,9 +31,7 @@ class WorkflowRunner:
         if workflow_function is None:
             await _fail_workflow(
                 workflow_id=workflow_record.workflow_id,
-                error_message=(
-                    f"No workflow named '{workflow_record.name}' is registered with this worker."
-                ),
+                error_message=(f"No workflow named '{workflow_record.name}' is registered with this worker."),
             )
             return
 
@@ -44,11 +42,11 @@ class WorkflowRunner:
         if started_event is None:
             await _fail_workflow(
                 workflow_id=workflow_record.workflow_id,
-                error_message="STARTED event is missing — workflow row is corrupt.",
+                error_message='STARTED event is missing — workflow row is corrupt.',
             )
             return
 
-        workflow_input: dict[str, Any] = started_event.payload.get("input", {})
+        workflow_input: dict[str, Any] = started_event.payload.get('input', {})
 
         workflow_context = WorkflowContext(
             workflow_id=workflow_record.workflow_id,
@@ -65,15 +63,14 @@ class WorkflowRunner:
         except DivergenceError as divergence_error:
             await _fail_workflow(
                 workflow_id=workflow_record.workflow_id,
-                error_message=f"Divergence: {divergence_error}",
+                error_message=f'Divergence: {divergence_error}',
             )
             return
         except Exception as unexpected_error:
             await _fail_workflow(
                 workflow_id=workflow_record.workflow_id,
                 error_message=(
-                    f"Unhandled exception in workflow code: "
-                    f"{type(unexpected_error).__name__}: {unexpected_error}"
+                    f'Unhandled exception in workflow code: {type(unexpected_error).__name__}: {unexpected_error}'
                 ),
             )
             return
@@ -81,9 +78,9 @@ class WorkflowRunner:
             await queries.write_event(
                 workflow_id=workflow_record.workflow_id,
                 step_index=-1,
-                step_name="workflow",
+                step_name='workflow',
                 event_type=EventType.WORKFLOW_COMPLETED,
-                payload={"result": result},
+                payload={'result': result},
             )
             await queries.update_workflow_status(
                 workflow_id=workflow_record.workflow_id,
@@ -98,9 +95,9 @@ async def _fail_workflow(workflow_id: str, error_message: str) -> None:
     await queries.write_event(
         workflow_id=workflow_id,
         step_index=-1,
-        step_name="workflow",
+        step_name='workflow',
         event_type=EventType.WORKFLOW_FAILED,
-        payload={"error": error_message},
+        payload={'error': error_message},
     )
     await queries.update_workflow_status(
         workflow_id=workflow_id,

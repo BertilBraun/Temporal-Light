@@ -23,7 +23,7 @@ async def wait_for_signal(signal_type: str) -> Any:
 
     signal_event = workflow_context.find_signal_event(signal_type)
     if signal_event is not None:
-        return signal_event.payload.get("payload")
+        return signal_event.payload.get('payload')
 
     if workflow_context.find_waiting_for_signal_event(signal_type) is None:
         await queries.write_event(
@@ -31,7 +31,7 @@ async def wait_for_signal(signal_type: str) -> Any:
             step_index=-1,
             step_name=signal_type,
             event_type=EventType.SIGNAL,
-            payload={"signal_type": signal_type, "status": "waiting"},
+            payload={'signal_type': signal_type, 'status': 'waiting'},
         )
         # Guard against the race where the signal arrived between loading history
         # and writing the waiting marker: re-read fresh DB history and check again.
@@ -41,10 +41,10 @@ async def wait_for_signal(signal_type: str) -> Any:
                 event.step_index == -1
                 and event.event_type == EventType.SIGNAL
                 and event.payload is not None
-                and event.payload.get("signal_type") == signal_type
-                and event.payload.get("status") != "waiting"
+                and event.payload.get('signal_type') == signal_type
+                and event.payload.get('status') != 'waiting'
             ):
-                return event.payload.get("payload")
+                return event.payload.get('payload')
 
     await queries.update_workflow_status(
         workflow_id=workflow_context.workflow_id,

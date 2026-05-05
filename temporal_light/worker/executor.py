@@ -34,30 +34,28 @@ async def execute_activity(
     # --- Replay path ---
     completed_event = workflow_context.find_completed_event(step_index)
     if completed_event is not None:
-        return completed_event.payload["result"]
+        return completed_event.payload['result']
 
     # --- Divergence detection ---
     scheduled_event = workflow_context.find_scheduled_event(step_index)
     if scheduled_event is not None:
-        recorded_step_name: str = scheduled_event.payload["step_name"]
+        recorded_step_name: str = scheduled_event.payload['step_name']
         if recorded_step_name != step_name:
             raise DivergenceError(
                 f"Step {step_index}: history recorded '{recorded_step_name}' "
                 f"but code now calls '{step_name}'. "
-                f"Workflow code changed incompatibly while the workflow was in flight."
+                f'Workflow code changed incompatibly while the workflow was in flight.'
             )
 
     # --- Write scheduled event (idempotent: only on first real execution) ---
     if scheduled_event is None:
-        serializable_arguments = _serialize_arguments(
-            positional_arguments, keyword_arguments
-        )
+        serializable_arguments = _serialize_arguments(positional_arguments, keyword_arguments)
         await queries.write_event(
             workflow_id=workflow_context.workflow_id,
             step_index=step_index,
             step_name=step_name,
             event_type=EventType.SCHEDULED,
-            payload={"step_name": step_name, "input": serializable_arguments},
+            payload={'step_name': step_name, 'input': serializable_arguments},
         )
 
     # --- Determine current attempt number from failed events in history ---
@@ -81,9 +79,7 @@ async def execute_activity(
             execution_error=execution_error,
             duration_seconds=duration_seconds,
         )
-        raise WorkflowSuspended(
-            f"Activity '{step_name}' failed on attempt {failed_attempt_count}."
-        )
+        raise WorkflowSuspended(f"Activity '{step_name}' failed on attempt {failed_attempt_count}.")
 
     # --- Success ---
     duration_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
@@ -93,9 +89,9 @@ async def execute_activity(
         step_name=step_name,
         event_type=EventType.COMPLETED,
         payload={
-            "result": result,
-            "duration_seconds": duration_seconds,
-            "attempts_total": failed_attempt_count + 1,
+            'result': result,
+            'duration_seconds': duration_seconds,
+            'attempts_total': failed_attempt_count + 1,
         },
     )
     return result
@@ -111,10 +107,10 @@ async def _handle_activity_failure(
     duration_seconds: float,
 ) -> None:
     error_payload = {
-        "error_type": type(execution_error).__name__,
-        "error_message": str(execution_error),
-        "attempt": failed_attempt_count,
-        "duration_seconds": duration_seconds,
+        'error_type': type(execution_error).__name__,
+        'error_message': str(execution_error),
+        'attempt': failed_attempt_count,
+        'duration_seconds': duration_seconds,
     }
     await queries.write_event(
         workflow_id=workflow_context.workflow_id,
@@ -126,9 +122,7 @@ async def _handle_activity_failure(
 
     attempts_used = failed_attempt_count + 1
     if attempts_used <= activity_policy.max_retries:
-        retry_at = datetime.now(timezone.utc) + timedelta(
-            seconds=activity_policy.backoff_seconds
-        )
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=activity_policy.backoff_seconds)
         await queries.update_workflow_run_at(
             workflow_id=workflow_context.workflow_id,
             run_at=retry_at,
@@ -137,12 +131,12 @@ async def _handle_activity_failure(
         await queries.write_event(
             workflow_id=workflow_context.workflow_id,
             step_index=-1,
-            step_name="workflow",
+            step_name='workflow',
             event_type=EventType.WORKFLOW_FAILED,
             payload={
-                "error": (
+                'error': (
                     f"Activity '{step_name}' exhausted all {activity_policy.max_retries} "
-                    f"retries. Last error: {type(execution_error).__name__}: {execution_error}"
+                    f'retries. Last error: {type(execution_error).__name__}: {execution_error}'
                 )
             },
         )
@@ -158,6 +152,6 @@ def _serialize_arguments(
 ) -> dict[str, Any]:
     """Convert call arguments into a JSON-safe dict for storage in the event log."""
     return {
-        "args": list(positional_arguments),
-        "kwargs": keyword_arguments,
+        'args': list(positional_arguments),
+        'kwargs': keyword_arguments,
     }

@@ -15,7 +15,7 @@ import pathlib
 
 import asyncpg
 
-_SCHEMA_PATH = pathlib.Path(__file__).parent / "schema.sql"
+_SCHEMA_PATH = pathlib.Path(__file__).parent / 'schema.sql'
 
 
 async def run_migration(
@@ -29,14 +29,14 @@ async def run_migration(
     Otherwise opens a standalone connection using database_url, which defaults
     to os.environ["DATABASE_URL"] (the normal Docker entrypoint path).
     """
-    schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
+    schema_sql = _SCHEMA_PATH.read_text(encoding='utf-8')
 
     if pool is not None:
         async with pool.acquire() as conn:
             await conn.execute(schema_sql)
         return
 
-    url = database_url if database_url is not None else os.environ["DATABASE_URL"]
+    url = database_url if database_url is not None else os.environ['DATABASE_URL']
     conn = await asyncpg.connect(url)
     try:
         await conn.execute(schema_sql)
@@ -44,5 +44,5 @@ async def run_migration(
         await conn.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(run_migration())
