@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temporal-Light</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Header */
+header { background: #0f172a; color: #f8fafc; padding: 0 20px; height: 48px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+header svg { width: 20px; height: 20px; color: #3b82f6; }
+header h1 { font-size: 0.95rem; font-weight: 600; letter-spacing: -0.01em; }
+header .subtitle { font-size: 0.75rem; color: #64748b; margin-left: 4px; }
+
+/* Layout */
+main { flex: 1; display: grid; grid-template-columns: 360px 1fr; overflow: hidden; }
+
+/* Left panel */
+#left { background: white; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden; }
+.panel-bar { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.panel-bar h2 { font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; flex: 1; }
+.panel-bar select { font-size: 0.78rem; padding: 3px 6px; border: 1px solid #e2e8f0; border-radius: 5px; background: white; color: #1e293b; cursor: pointer; }
+.panel-bar .count { font-size: 0.72rem; color: #94a3b8; }
+
+#workflow-list { flex: 1; overflow-y: auto; }
+.wf-row { padding: 11px 14px; border-bottom: 1px solid #f8fafc; cursor: pointer; transition: background 0.08s; }
+.wf-row:hover { background: #f8fafc; }
+.wf-row.active { background: #eff6ff; border-left: 3px solid #3b82f6; padding-left: 11px; }
+.wf-row-top { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+.wf-name { font-size: 0.875rem; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-row-bottom { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; color: #94a3b8; }
+.wf-id { font-family: ui-monospace, monospace; }
+.placeholder { display: flex; align-items: center; justify-content: center; height: 80px; color: #94a3b8; font-size: 0.85rem; }
+
+/* Right panel */
+#right { display: flex; flex-direction: column; overflow: hidden; }
+#empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #94a3b8; }
+#empty svg { width: 40px; height: 40px; opacity: 0.3; }
+#empty p { font-size: 0.875rem; }
+
+#detail-head { padding: 14px 20px; background: white; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; display: none; }
+#detail-name { font-size: 1rem; font-weight: 600; margin-bottom: 5px; }
+#detail-meta { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #64748b; }
+#detail-id { font-family: ui-monospace, monospace; font-size: 0.72rem; }
+.live { display: flex; align-items: center; gap: 4px; color: #10b981; font-size: 0.72rem; font-weight: 500; }
+.live-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+#events-wrap { flex: 1; overflow-y: auto; padding: 14px 20px; display: none; flex-direction: column; gap: 7px; }
+
+/* Event cards */
+.ev { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; }
+.ev-head { display: flex; align-items: center; gap: 7px; }
+.ev-name { font-size: 0.85rem; font-weight: 500; flex: 1; }
+.ev-step { font-family: ui-monospace, monospace; font-size: 0.7rem; color: #94a3b8; }
+.ev-time { font-size: 0.68rem; color: #94a3b8; white-space: nowrap; }
+.ev-body { margin-top: 7px; font-size: 0.78rem; color: #475569; display: flex; flex-direction: column; gap: 4px; }
+.ev-body pre { background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 5px; padding: 7px 9px; font-size: 0.72rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; color: #334155; }
+.ev-error { color: #dc2626; }
+.ev-dim { color: #94a3b8; }
+.ev.ok { border-left: 3px solid #10b981; }
+.ev.err { border-left: 3px solid #ef4444; }
+
+/* Badges */
+.badge { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 9999px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+.b-running         { background:#dbeafe; color:#1d4ed8; }
+.b-completed       { background:#d1fae5; color:#065f46; }
+.b-failed          { background:#fee2e2; color:#991b1b; }
+.b-started         { background:#f1f5f9; color:#475569; }
+.b-scheduled       { background:#e0f2fe; color:#0369a1; }
+.b-sleep           { background:#ede9fe; color:#5b21b6; }
+.b-signal          { background:#ffedd5; color:#9a3412; }
+.b-workflow_completed { background:#d1fae5; color:#065f46; }
+.b-workflow_failed    { background:#fee2e2; color:#991b1b; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  <h1>Temporal-Light</h1>
+  <span class="subtitle">Workflow Dashboard</span>
+</header>
+
+<main>
+  <div id="left">
+    <div class="panel-bar">
+      <h2>Workflows</h2>
+      <span class="count" id="wf-count"></span>
+      <select id="status-filter">
+        <option value="">All</option>
+        <option value="running">Running</option>
+        <option value="completed">Completed</option>
+        <option value="failed">Failed</option>
+      </select>
+    </div>
+    <div id="workflow-list"><div class="placeholder">Loading…</div></div>
+  </div>
+
+  <div id="right">
+    <div id="empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+      <p>Select a workflow to inspect it.</p>
+    </div>
+    <div id="detail-head">
+      <div id="detail-name"></div>
+      <div id="detail-meta">
+        <span id="detail-badge"></span>
+        <span id="detail-id"></span>
+        <span id="detail-live"></span>
+      </div>
+    </div>
+    <div id="events-wrap"></div>
+  </div>
+</main>
+
+<script>
+'use strict';
+
+let selectedId = null;
+let activeEventSource = null;
+
+// ── List ──────────────────────────────────────────────────────────────────────
+
+async function refresh() {
+  const status = document.getElementById('status-filter').value;
+  const qs = status ? `status=${encodeURIComponent(status)}&limit=200` : 'limit=200';
+  try {
+    const res = await fetch(`/workflows?${qs}`);
+    if (!res.ok) return;
+    renderList(await res.json());
+  } catch (_) {}
+}
+
+function renderList(workflows) {
+  document.getElementById('wf-count').textContent = workflows.length ? `${workflows.length}` : '';
+  const container = document.getElementById('workflow-list');
+  if (!workflows.length) {
+    container.innerHTML = '<div class="placeholder">No workflows found.</div>';
+    return;
+  }
+  container.innerHTML = workflows.map(w => `
+    <div class="wf-row${w.workflow_id === selectedId ? ' active' : ''}"
+         data-id="${esc(w.workflow_id)}"
+         data-name="${esc(w.name)}"
+         data-status="${esc(w.status)}">
+      <div class="wf-row-top">
+        <span class="wf-name">${esc(w.name)}</span>
+        <span class="badge b-${w.status}">${w.status}</span>
+      </div>
+      <div class="wf-row-bottom">
+        <span class="wf-id">${w.workflow_id.slice(0, 8)}…</span>
+        <span>${fmtTime(w.created_at)}</span>
+        <span>${fmtTime(w.updated_at) !== fmtTime(w.created_at) ? 'upd ' + fmtTime(w.updated_at) : ''}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('workflow-list').addEventListener('click', e => {
+  const row = e.target.closest('.wf-row');
+  if (!row) return;
+  const { id, name, status } = row.dataset;
+  openWorkflow(id, name, status);
+});
+
+document.getElementById('status-filter').addEventListener('change', refresh);
+
+// ── Detail ────────────────────────────────────────────────────────────────────
+
+function openWorkflow(id, name, status) {
+  if (selectedId === id) return;
+  selectedId = id;
+
+  // Highlight row
+  document.querySelectorAll('.wf-row').forEach(r =>
+    r.classList.toggle('active', r.dataset.id === id));
+
+  // Close old stream
+  if (activeEventSource) { activeEventSource.close(); activeEventSource = null; }
+
+  // Show panels
+  document.getElementById('empty').style.display = 'none';
+  const head = document.getElementById('detail-head');
+  const wrap = document.getElementById('events-wrap');
+  head.style.display = 'block';
+  wrap.style.display = 'flex';
+  wrap.innerHTML = '';
+
+  document.getElementById('detail-name').textContent = name;
+  document.getElementById('detail-id').textContent = id;
+  setDetailStatus(status, true);
+
+  // Open SSE
+  activeEventSource = new EventSource(`/workflows/${encodeURIComponent(id)}/stream`);
+  activeEventSource.onmessage = e => {
+    const data = JSON.parse(e.data);
+    appendEventCard(data);
+    if (data.type === 'workflow_completed' || data.type === 'workflow_failed') {
+      const finalStatus = data.type === 'workflow_completed' ? 'completed' : 'failed';
+      setDetailStatus(finalStatus, false);
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+  };
+  activeEventSource.onerror = () => setDetailStatus(status, false);
+}
+
+function setDetailStatus(status, live) {
+  document.getElementById('detail-badge').innerHTML =
+    `<span class="badge b-${status}">${status}</span>`;
+  document.getElementById('detail-live').innerHTML = live
+    ? '<span class="live"><span class="live-dot"></span>Live</span>'
+    : '';
+}
+
+function appendEventCard(data) {
+  const wrap = document.getElementById('events-wrap');
+  const div = document.createElement('div');
+  const isOk  = data.type === 'workflow_completed';
+  const isErr = data.type === 'workflow_failed' || data.type === 'failed';
+  div.className = 'ev' + (isOk ? ' ok' : isErr ? ' err' : '');
+
+  const stepLabel = (data.step_index != null && data.step_index >= 0)
+    ? `<span class="ev-step">step ${data.step_index}</span>` : '';
+
+  div.innerHTML = `
+    <div class="ev-head">
+      <span class="badge b-${data.type}">${data.type}</span>
+      <span class="ev-name">${esc(data.step_name || '')}</span>
+      ${stepLabel}
+      <span class="ev-time">${fmtTime(data.timestamp)}</span>
+    </div>
+    <div class="ev-body">${buildBody(data)}</div>
+  `;
+
+  // Remove empty body
+  const body = div.querySelector('.ev-body');
+  if (!body.innerHTML.trim()) body.remove();
+
+  wrap.appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function buildBody(data) {
+  const parts = [];
+
+  if (data.result !== undefined)
+    parts.push(`<pre>${esc(JSON.stringify(data.result, null, 2))}</pre>`);
+
+  if (data.error != null)
+    parts.push(`<span class="ev-error">${esc(data.error)}</span>`);
+
+  if (data.error_message != null)
+    parts.push(`<span class="ev-error">${esc(data.error_type)}: ${esc(data.error_message)}</span>`);
+
+  if (data.wakeup_at)
+    parts.push(`<span class="ev-dim">Wakes at ${fmtFull(data.wakeup_at)}</span>`);
+
+  if (data.signal_type) {
+    const pl = data.payload != null ? ` — ${esc(JSON.stringify(data.payload))}` : '';
+    parts.push(`Signal: <strong>${esc(data.signal_type)}</strong>${pl}`);
+  }
+
+  const stats = [];
+  if (data.duration_seconds != null) stats.push(`${data.duration_seconds.toFixed(2)}s`);
+  if (data.attempts_total != null && data.attempts_total > 1) stats.push(`${data.attempts_total} attempts`);
+  if (data.attempt != null) stats.push(`attempt ${data.attempt + 1}`);
+  if (stats.length) parts.push(`<span class="ev-dim">${stats.join(' · ')}</span>`);
+
+  return parts.join('\n');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function fmtFull(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString();
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

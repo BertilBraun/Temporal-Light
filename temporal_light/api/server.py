@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+
+_DASHBOARD_PATH = pathlib.Path(__file__).parent / "dashboard.html"
 
 from ..db import connection, queries
 from ..models import WorkflowRecord, WorkflowStatus
@@ -59,6 +62,11 @@ class SendSignalRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+@app.get("/", include_in_schema=False)
+async def serve_dashboard() -> FileResponse:
+    return FileResponse(_DASHBOARD_PATH, media_type="text/html")
 
 
 @app.post("/workflows", response_model=StartWorkflowResponse, status_code=201)
