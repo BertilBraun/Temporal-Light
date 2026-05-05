@@ -1,16 +1,13 @@
-"""sleep() and wait_for_signal() — workflow suspension primitives."""
+"""sleep() — suspend a workflow for a fixed duration."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from .db import queries
 from .exceptions import WorkflowSuspended
 from .models import EventType
 from .worker.context import _current_workflow_context
-
-_FAR_FUTURE = datetime(9999, 1, 1, tzinfo=timezone.utc)
 
 
 async def sleep(
@@ -61,25 +58,3 @@ async def sleep(
     raise WorkflowSuspended(f"Workflow sleeping until {wakeup_at.isoformat()}.")
 
 
-async def wait_for_signal(signal_type: str) -> Any:
-    """Suspend the workflow until a signal of the given type is received.
-
-    On first encounter: pushes run_at to far-future and raises WorkflowSuspended.
-    The API's signal endpoint resets run_at = NOW() when the signal arrives,
-    causing the scheduler to re-pick up the workflow.
-    On replay: finds the signal event in history and returns its payload.
-    """
-    workflow_context = _current_workflow_context.get()
-    workflow_context.next_step_index()
-
-    signal_event = workflow_context.find_signal_event(signal_type)
-    if signal_event is not None:
-        return signal_event.payload.get("payload")
-
-    await queries.update_workflow_run_at(
-        workflow_id=workflow_context.workflow_id,
-        run_at=_FAR_FUTURE,
-    )
-    raise WorkflowSuspended(
-        f"Workflow waiting for signal '{signal_type}'."
-    )

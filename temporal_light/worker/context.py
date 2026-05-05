@@ -53,6 +53,19 @@ class WorkflowContext:
                 return event
         return None
 
+    def find_waiting_for_signal_event(self, signal_type: str) -> EventRecord | None:
+        """Return the waiting marker event for signal_type if one was already written."""
+        for event in self.event_history:
+            if (
+                event.step_index == -1
+                and event.event_type == EventType.SIGNAL
+                and event.payload is not None
+                and event.payload.get("signal_type") == signal_type
+                and event.payload.get("status") == "waiting"
+            ):
+                return event
+        return None
+
     def count_failed_events(self, step_index: int) -> int:
         return sum(
             1

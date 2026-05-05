@@ -300,11 +300,9 @@ Integration tests are skipped automatically when `TEST_DATABASE_URL` is not set.
 
 ## Known Limitations
 
-**`wait_for_signal` leaves no event log marker.** When a workflow suspends waiting for a signal, nothing is written to the event log. The dashboard shows it as `running` with no indication of which signal is expected. Fix: write a `waiting_for_signal` event on first suspension, skip on replay.
-
 **No signal timeout.** A workflow calling `wait_for_signal` will wait indefinitely if the signal never arrives. A `timeout` parameter to `wait_for_signal` would address this.
 
-**Client SSE has no reconnection.** If the API restarts while `handle.result()` is streaming, the call raises and the caller must retry. For production use, add exponential backoff reconnect with an `after_event_id` cursor.
+**Client SSE reconnection is best-effort.** If the API restarts while `handle.result()` is streaming, the client retries up to 3 times with exponential backoff (1 s, 2 s, 4 s). If all retries fail, `WorkflowFailedError` is raised. For production use, add an `after_event_id` cursor so reconnects resume from the last seen event rather than replaying from the beginning.
 
 **Fixed backoff only.** The retry model supports `backoff_seconds` as a fixed delay. Exponential backoff can be added without changing the event log structure.
 

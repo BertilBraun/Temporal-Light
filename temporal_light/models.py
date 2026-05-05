@@ -8,6 +8,7 @@ from typing import Any
 
 class WorkflowStatus(Enum):
     RUNNING = "running"
+    WAITING = "waiting"
     COMPLETED = "completed"
     FAILED = "failed"
 

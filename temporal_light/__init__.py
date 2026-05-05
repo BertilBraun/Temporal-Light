@@ -1,6 +1,7 @@
 from .client import Client, WorkflowFailedError, WorkflowHandle
 from .decorators import activity, workflow
-from .sleep import sleep, wait_for_signal
+from .signals import wait_for_signal
+from .sleep import sleep
 from .worker.worker import Worker
 
 __all__ = [
