@@ -1,15 +1,9 @@
-"""Shared fixtures.
-
-Unit tests run with no setup required.
-Integration tests require TEST_DATABASE_URL to be set; they are skipped
-automatically when it is absent so the suite stays green in environments
-without a database.
-"""
-
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncGenerator
 
+import asyncpg
 import pytest
 
 from temporal_light.db import connection
@@ -30,20 +24,22 @@ def pytest_collection_modifyitems(
 
 
 @pytest.fixture(scope="session")
-async def database_pool():
-    """Session-scoped pool; runs migration once for the whole test session."""
+async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
     assert TEST_DATABASE_URL, "TEST_DATABASE_URL must be set for integration tests"
-    await connection.initialize_connection_pool(TEST_DATABASE_URL)
-    await run_migration()
-    yield
-    await connection.close_connection_pool()
+    pool = await asyncpg.create_pool(
+        TEST_DATABASE_URL,
+        init=connection._initialize_connection,
+    )
+    await run_migration(pool=pool)
+    # Register this pool as the module-level singleton so production code finds it.
+    connection._connection_pool = pool
+    yield pool
+    await pool.close()
 
 
 @pytest.fixture
-async def clean_database(database_pool: None) -> None:
-    """Truncate all tables before each integration test for isolation."""
-    pool = await connection.get_connection_pool()
-    async with pool.acquire() as conn:
+async def clean_database(db_pool: asyncpg.Pool) -> None:
+    async with db_pool.acquire() as conn:
         await conn.execute(
             "TRUNCATE TABLE events, workflows, workers RESTART IDENTITY CASCADE"
         )
