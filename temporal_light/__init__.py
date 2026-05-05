@@ -1,10 +1,15 @@
-"""Temporal-Light public API.
-
-Phase 1 exports: Worker, @workflow, @activity.
-Phase 2 will add: Client, sleep, wait_for_signal.
-"""
-
+from .client import Client, WorkflowFailedError, WorkflowHandle
 from .decorators import activity, workflow
+from .sleep import sleep, wait_for_signal
 from .worker.worker import Worker
 
-__all__ = ["Worker", "workflow", "activity"]
+__all__ = [
+    "Worker",
+    "workflow",
+    "activity",
+    "sleep",
+    "wait_for_signal",
+    "Client",
+    "WorkflowHandle",
+    "WorkflowFailedError",
+]

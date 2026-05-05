@@ -76,6 +76,18 @@ async def create_workflow(
             )
 
 
+async def get_workflow(workflow_id: str) -> WorkflowRecord | None:
+    pool = await connection.get_connection_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM workflows WHERE workflow_id = $1",
+            workflow_id,
+        )
+    if row is None:
+        return None
+    return _row_to_workflow_record(row)
+
+
 async def claim_next_workflow(worker_identifier: str) -> WorkflowRecord | None:
     """Atomically claim the oldest eligible workflow for this worker.
 
@@ -195,6 +207,18 @@ async def load_event_history(workflow_id: str) -> list[EventRecord]:
     return [_row_to_event_record(row) for row in rows]
 
 
+async def load_events_after(workflow_id: str, after_event_id: int) -> list[EventRecord]:
+    """Return events inserted after after_event_id (used for SSE tailing)."""
+    pool = await connection.get_connection_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM events WHERE workflow_id = $1 AND id > $2 ORDER BY id",
+            workflow_id,
+            after_event_id,
+        )
+    return [_row_to_event_record(row) for row in rows]
+
+
 async def write_event(
     workflow_id: str,
     step_index: int,
@@ -202,7 +226,7 @@ async def write_event(
     event_type: EventType,
     payload: dict[str, Any],
 ) -> None:
-    """Append a single event to the log.
+    """Append a single event to the log and notify the API's SSE listeners.
 
     payload must be JSON-serializable — validated implicitly by json.dumps.
     """
@@ -220,11 +244,62 @@ async def write_event(
             event_type.value,
             json.dumps(payload),
         )
+        await conn.execute(
+            "SELECT pg_notify('workflow_events', $1)",
+            workflow_id,
+        )
+
+
+async def write_signal_and_wake_workflow(
+    workflow_id: str,
+    signal_type: str,
+    signal_payload: Any,
+) -> None:
+    """Write a signal event and immediately make the workflow claimable.
+
+    Atomic: the signal event and the run_at reset happen in one transaction
+    so the scheduler cannot claim the workflow before the signal is visible
+    in the event log.
+    """
+    pool = await connection.get_connection_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO events
+                    (workflow_id, step_index, step_name, event_type, payload, timestamp)
+                VALUES ($1, -1, 'signal', $2, $3::jsonb, NOW())
+                """,
+                workflow_id,
+                EventType.SIGNAL.value,
+                json.dumps({"signal_type": signal_type, "payload": signal_payload}),
+            )
+            await conn.execute(
+                "UPDATE workflows SET run_at = NOW(), updated_at = NOW() WHERE workflow_id = $1",
+                workflow_id,
+            )
+            await conn.execute(
+                "SELECT pg_notify('workflow_events', $1)",
+                workflow_id,
+            )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _row_to_workflow_record(row: asyncpg.Record) -> WorkflowRecord:
+    return WorkflowRecord(
+        workflow_id=row["workflow_id"],
+        name=row["name"],
+        status=WorkflowStatus(row["status"]),
+        run_at=row["run_at"],
+        locked_by=row["locked_by"],
+        locked_until=row["locked_until"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
 
 
 def _row_to_event_record(row: asyncpg.Record) -> EventRecord:

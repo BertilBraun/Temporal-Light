@@ -28,20 +28,27 @@ class WorkflowContext:
         self.step_counter += 1
         return index
 
-    def find_completed_event(self, step_index: int) -> EventRecord | None:
+    def find_event(self, step_index: int, event_type: EventType) -> EventRecord | None:
         for event in self.event_history:
-            if (
-                event.step_index == step_index
-                and event.event_type == EventType.COMPLETED
-            ):
+            if event.step_index == step_index and event.event_type == event_type:
                 return event
         return None
 
+    def find_completed_event(self, step_index: int) -> EventRecord | None:
+        return self.find_event(step_index, EventType.COMPLETED)
+
     def find_scheduled_event(self, step_index: int) -> EventRecord | None:
+        return self.find_event(step_index, EventType.SCHEDULED)
+
+    def find_signal_event(self, signal_type: str) -> EventRecord | None:
+        """Return the first received signal event matching signal_type, or None."""
         for event in self.event_history:
             if (
-                event.step_index == step_index
-                and event.event_type == EventType.SCHEDULED
+                event.step_index == -1
+                and event.event_type == EventType.SIGNAL
+                and event.payload is not None
+                and event.payload.get("signal_type") == signal_type
+                and event.payload.get("status") != "waiting"
             ):
                 return event
         return None
