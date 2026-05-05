@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -71,7 +70,7 @@ async def create_workflow(
                 """,
                 workflow_id,
                 EventType.STARTED.value,
-                json.dumps({"input": workflow_input}),
+                {"input": workflow_input},
                 now,
             )
 
@@ -226,10 +225,7 @@ async def write_event(
     event_type: EventType,
     payload: dict[str, Any],
 ) -> None:
-    """Append a single event to the log and notify the API's SSE listeners.
-
-    payload must be JSON-serializable — validated implicitly by json.dumps.
-    """
+    """Append a single event to the log and notify the API's SSE listeners."""
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         await conn.execute(
@@ -242,7 +238,7 @@ async def write_event(
             step_index,
             step_name,
             event_type.value,
-            json.dumps(payload),
+            payload,
         )
         await conn.execute(
             "SELECT pg_notify('workflow_events', $1)",
@@ -272,7 +268,7 @@ async def write_signal_and_wake_workflow(
                 """,
                 workflow_id,
                 EventType.SIGNAL.value,
-                json.dumps({"signal_type": signal_type, "payload": signal_payload}),
+                {"signal_type": signal_type, "payload": signal_payload},
             )
             await conn.execute(
                 "UPDATE workflows SET run_at = NOW(), updated_at = NOW() WHERE workflow_id = $1",
