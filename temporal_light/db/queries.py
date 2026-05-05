@@ -97,6 +97,14 @@ async def claim_next_workflow(worker_identifier: str) -> WorkflowRecord | None:
     lock_duration_seconds = 30
     async with pool.acquire() as conn:
         async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO workers (worker_id, last_seen)
+                VALUES ($1, NOW())
+                ON CONFLICT (worker_id) DO UPDATE SET last_seen = NOW()
+                """,
+                worker_identifier,
+            )
             row = await conn.fetchrow(
                 """
                 SELECT *
@@ -271,7 +279,11 @@ async def write_signal_and_wake_workflow(
                 {"signal_type": signal_type, "payload": signal_payload},
             )
             await conn.execute(
-                "UPDATE workflows SET run_at = NOW(), updated_at = NOW() WHERE workflow_id = $1",
+                """
+                UPDATE workflows
+                SET run_at = NOW(), status = 'running', updated_at = NOW()
+                WHERE workflow_id = $1
+                """,
                 workflow_id,
             )
             await conn.execute(

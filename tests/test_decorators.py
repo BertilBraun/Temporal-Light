@@ -61,7 +61,7 @@ def test_activity_preserves_function_name() -> None:
         pass
 
     assert process_payment.__name__ == "process_payment"
-    assert process_payment.__qualname__ == "process_payment"
+    assert process_payment.__qualname__.endswith("process_payment")
 
 
 def test_activity_sets_is_activity_flag() -> None:
