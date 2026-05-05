@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 import httpx
 
 from .models import WorkflowStatus
+
+_SSE_MAX_ATTEMPTS = 3
+_SSE_BACKOFF_BASE_SECONDS = 1.0
 
 
 class WorkflowHandle:
@@ -35,7 +39,38 @@ class WorkflowHandle:
     async def result(self) -> Any:
         """Stream events via SSE until the workflow completes, then return its result.
 
-        Raises WorkflowFailedError if the workflow failed.
+        Retries up to _SSE_MAX_ATTEMPTS times with exponential backoff on connection
+        errors. Raises WorkflowFailedError if the workflow failed or all retries
+        are exhausted.
+        """
+        last_error: Exception | None = None
+        for attempt in range(_SSE_MAX_ATTEMPTS):
+            if attempt > 0:
+                await asyncio.sleep(_SSE_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+            try:
+                terminal = await self._stream_until_terminal()
+                if terminal is not None:
+                    return terminal
+            except (
+                httpx.RemoteProtocolError,
+                httpx.ConnectError,
+                httpx.ReadError,
+            ) as connection_error:
+                last_error = connection_error
+
+        raise WorkflowFailedError(
+            workflow_id=self.workflow_id,
+            error=(
+                f"SSE stream failed after {_SSE_MAX_ATTEMPTS} attempts: {last_error}"
+            ),
+        )
+
+    async def _stream_until_terminal(self) -> Any:
+        """Open one SSE connection and read until a terminal event or stream close.
+
+        Returns the workflow result on workflow_completed. Raises WorkflowFailedError
+        on workflow_failed. Returns None if the stream closes without a terminal event
+        (caller should retry).
         """
         async with httpx.AsyncClient(timeout=None) as http_client:
             async with http_client.stream(
@@ -57,11 +92,7 @@ class WorkflowHandle:
                             workflow_id=self.workflow_id,
                             error=event_data.get("error", "Unknown error"),
                         )
-
-        raise WorkflowFailedError(
-            workflow_id=self.workflow_id,
-            error="SSE stream closed before a terminal event was received.",
-        )
+        return None
 
 
 class Client:
