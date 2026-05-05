@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Env
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Postgres data (if running locally outside Docker)
+pgdata/
