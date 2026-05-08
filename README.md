@@ -304,3 +304,9 @@ Integration tests are skipped automatically when `TEST_DATABASE_URL` is not set.
 **No API authentication.** Explicitly out of scope. In production, place the API behind a reverse proxy with auth (e.g. nginx + mTLS, or an API gateway).
 
 **Exactly-once across external systems.** Activities may be called more than once on retry. They must be idempotent by design.
+
+---
+
+## Roadmap
+
+Planned engineering investments beyond the MVP are documented in [FUTURE.md](FUTURE.md).
