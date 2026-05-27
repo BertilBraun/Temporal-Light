@@ -18,10 +18,6 @@ The current heartbeat is workflow-scoped (the lock). A long-running activity hol
 
 The fix is transparent: the executor launches a background thread that periodically writes an activity-level heartbeat to the DB for the duration of the activity call. When the activity finishes (success, failure, or exception), the thread is stopped. The activity author sees nothing. Requires a per-step deadline column, a heartbeat thread in the executor, and an expiry check in the scheduler that distinguishes "workflow lock expired" from "activity heartbeat expired".
 
-## Child workflows
-
-Spawn a sub-workflow from within a running workflow. Unlocks fan-out patterns, sagas, and pipeline orchestration. Requires the engine to track parent/child relationships in the schema, propagate cancellation from parent to children, and handle replay correctly when the parent re-runs but the child already completed (treat the child's final result as a cached event, same as an activity).
-
 ## Horizontal scale profiling
 
 Characterise where the `FOR UPDATE SKIP LOCKED` claim queue breaks down under load: measure claim latency, queue depth, and Postgres lock contention as concurrent workflow count and worker count scale up. Identify the practical ceiling, document it, and decide whether partition-based claiming or an external dispatch layer (Redis streams, NATS) is warranted.

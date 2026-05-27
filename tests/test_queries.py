@@ -7,6 +7,7 @@ import pytest
 from temporal_light.db.queries import (
     claim_next_workflow,
     create_workflow,
+    create_child_workflow,
     get_workflow,
     load_event_history,
     load_events_after,
@@ -184,3 +185,44 @@ async def test_write_signal_makes_workflow_immediately_claimable(
     now_claimable = await claim_next_workflow('worker-a')
     assert now_claimable is not None
     assert now_claimable.workflow_id == 'wf-1'
+
+
+# ---------------------------------------------------------------------------
+# create_child_workflow
+# ---------------------------------------------------------------------------
+
+
+async def test_create_child_workflow_writes_parent_child_started_and_child_started_atomically(
+    clean_database: None,
+) -> None:
+    await create_workflow('parent-1', 'parent_flow', {})
+
+    await create_child_workflow(
+        parent_workflow_id='parent-1',
+        child_workflow_id='child-1',
+        child_workflow_name='child_flow',
+        child_workflow_input={'value': 7},
+        parent_step_index=0,
+    )
+
+    parent_history = await load_event_history('parent-1')
+    child_started = parent_history[-1]
+    assert child_started.event_type == EventType.CHILD_STARTED
+    assert child_started.step_index == 0
+    assert child_started.payload == {
+        'child_id': 'child-1',
+        'workflow_name': 'child_flow',
+        'input': {'value': 7},
+    }
+
+    child_record = await get_workflow('child-1')
+    assert child_record is not None
+    assert child_record.name == 'child_flow'
+    assert child_record.status == WorkflowStatus.RUNNING
+
+    child_history = await load_event_history('child-1')
+    assert child_history[0].event_type == EventType.STARTED
+    assert child_history[0].payload == {
+        'input': {'value': 7},
+        'parent': {'workflow_id': 'parent-1', 'child_id': 'child-1'},
+    }

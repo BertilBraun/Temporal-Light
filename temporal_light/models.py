@@ -20,6 +20,7 @@ class EventType(Enum):
     FAILED = 'failed'
     SLEEP = 'sleep'
     SIGNAL = 'signal'
+    CHILD_STARTED = 'child_started'
     WORKFLOW_COMPLETED = 'workflow_completed'
     WORKFLOW_FAILED = 'workflow_failed'
 

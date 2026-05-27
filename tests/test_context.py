@@ -76,6 +76,48 @@ def test_find_scheduled_event_returns_matching_event() -> None:
     assert context.find_scheduled_event(2) is event
 
 
+def test_find_child_started_event_returns_matching_event() -> None:
+    event = _make_event(
+        1,
+        2,
+        EventType.CHILD_STARTED,
+        step_name='child_flow',
+        payload={'child_id': 'child-1', 'workflow_name': 'child_flow', 'input': {}},
+    )
+    context = WorkflowContext(workflow_id='wf-test', event_history=[event])
+    assert context.find_child_started_event(2) is event
+
+
+def test_find_child_result_signal_returns_matching_child() -> None:
+    signal = _make_event(
+        1,
+        -1,
+        EventType.SIGNAL,
+        step_name='signal',
+        payload={
+            'signal_type': '__child_completed__',
+            'payload': {'child_id': 'child-1', 'status': 'completed', 'result': {'ok': True}},
+        },
+    )
+    context = WorkflowContext(workflow_id='wf-test', event_history=[signal])
+    assert context.find_child_result_signal('child-1') is signal
+
+
+def test_find_child_result_signal_ignores_other_children() -> None:
+    signal = _make_event(
+        1,
+        -1,
+        EventType.SIGNAL,
+        step_name='signal',
+        payload={
+            'signal_type': '__child_completed__',
+            'payload': {'child_id': 'child-2', 'status': 'completed', 'result': 'ok'},
+        },
+    )
+    context = WorkflowContext(workflow_id='wf-test', event_history=[signal])
+    assert context.find_child_result_signal('child-1') is None
+
+
 def test_find_event_returns_first_match_when_multiple_present() -> None:
     first = _make_event(1, 0, EventType.FAILED)
     second = _make_event(2, 0, EventType.FAILED)

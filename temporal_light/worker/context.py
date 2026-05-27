@@ -40,6 +40,20 @@ class WorkflowContext:
     def find_scheduled_event(self, step_index: int) -> EventRecord | None:
         return self.find_event(step_index, EventType.SCHEDULED)
 
+    def find_child_started_event(self, step_index: int) -> EventRecord | None:
+        return self.find_event(step_index, EventType.CHILD_STARTED)
+
+    def find_child_result_signal(self, child_id: str) -> EventRecord | None:
+        for event in self.event_history:
+            if event.step_index != -1 or event.event_type != EventType.SIGNAL or event.payload is None:
+                continue
+            if event.payload.get('signal_type') != '__child_completed__':
+                continue
+            signal_payload = event.payload.get('payload')
+            if isinstance(signal_payload, dict) and signal_payload.get('child_id') == child_id:
+                return event
+        return None
+
     def find_signal_event(self, signal_type: str) -> EventRecord | None:
         """Return the first received signal event matching signal_type, or None."""
         for event in self.event_history:

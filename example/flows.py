@@ -1,16 +1,16 @@
-"""Example workflow: order processing with payment, approval gate, and receipt."""
+"""Example workflow: order processing with child workflow, approval gate, and receipt."""
 
 import asyncio
 import random
 
-from temporal_light import activity, sleep, wait_for_signal, workflow
+from temporal_light import activity, sleep, spawn_child, wait_for_child, wait_for_signal, workflow
 
 
 @activity(retries=3, timeout=30, backoff_seconds=5)
 async def charge_payment(order_id: str, amount: float) -> dict:
     # Simulate occasional transient failures to demonstrate retries.
     if random.random() < 0.5:
-        raise RuntimeError('Payment gateway timeout — will retry.')
+        raise RuntimeError('Payment gateway timeout - will retry.')
     await asyncio.sleep(0.5)
     return {'transaction_id': f'txn_{order_id}_{int(amount * 100)}'}
 
@@ -31,12 +31,16 @@ async def cancel_order(order_id: str, reason: str) -> dict:
 
 @workflow
 async def order_flow(order_id: str, amount: float) -> dict:
-    """Charge → wait for manager approval → send receipt (or cancel on rejection).
+    """Charge, spawn risk check, wait for approval, then send receipt.
 
-    Demonstrates: activity retries, sleep, and wait_for_signal.
+    Demonstrates: activity retries, child workflows, sleep, and wait_for_signal.
     """
     payment_result = await charge_payment(order_id, amount)
     transaction_id: str = payment_result['transaction_id']
+
+    # The child starts immediately and runs independently while the parent
+    # continues through any approval delay.
+    risk_check_id = await spawn_child('risk_check_flow', order_id=order_id, amount=amount)
 
     # For large orders, require explicit approval before fulfilling.
     if amount > 500:
@@ -48,10 +52,26 @@ async def order_flow(order_id: str, amount: float) -> dict:
             await cancel_order(order_id, reason=approval.get('reason', 'Rejected by manager.'))
             return {'status': 'cancelled', 'order_id': order_id}
 
+    risk_result = await wait_for_child(risk_check_id)
+    if risk_result['risk'] == 'high':
+        await cancel_order(order_id, reason='Risk check failed.')
+        return {'status': 'cancelled', 'order_id': order_id, 'risk': risk_result}
+
     receipt_result = await send_receipt(order_id, transaction_id, amount)
     return {
         'status': 'completed',
         'order_id': order_id,
         'transaction_id': transaction_id,
         'receipt_sent': receipt_result['sent'],
+        'risk': risk_result,
+    }
+
+
+@workflow
+async def risk_check_flow(order_id: str, amount: float) -> dict:
+    """Independent child workflow used by order_flow."""
+    await sleep(seconds=1)
+    return {
+        'order_id': order_id,
+        'risk': 'high' if amount >= 5000 else 'low',
     }

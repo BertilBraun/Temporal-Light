@@ -83,6 +83,15 @@ Both suspend execution by raising an internal `_WorkflowSuspended` exception (ca
 - **`sleep()`** — writes a `sleep` event with `wakeup_at`, sets `run_at = wakeup_at`. The scheduler picks the workflow up when `run_at <= now`.
 - **`wait_for_signal(signal_type)`** — scans history for a matching `signal` event. If absent, sets `run_at` to year 9999 and suspends. The API's signal endpoint writes the signal event and atomically resets `run_at = NOW()` in the same transaction.
 
+### Child workflows
+
+Child workflows let a parent fan out independent workflow executions and join them later:
+
+- **`spawn_child(workflow_name, **kwargs)`** writes a parent `child_started` event, creates the child workflow, and returns the child workflow id. On replay it reads the existing `child_started` event, so a resumed parent does not create duplicate children.
+- **`wait_for_child(child_id)`** scans the parent's event log for the reserved child completion signal. If absent, it marks the parent waiting and suspends. When the child completes or fails, the runner writes that reserved signal to the parent and wakes it atomically.
+
+Child workflow inputs and results must be JSON-serializable, just like workflow starts and activity results.
+
 ### Multi-worker coordination
 
 ```sql
@@ -102,12 +111,12 @@ FOR UPDATE SKIP LOCKED;
 | Decision | Choice | Why |
 |---|---|---|
 | Replay trigger | Crash recovery / worker handoff only | Normal execution runs straight through — no overhead |
-| Suspension mechanism | Internal `_WorkflowSuspended` exception | Only sleep/signals need to stop; activities run in place |
+| Suspension mechanism | Internal `_WorkflowSuspended` exception | Sleep, signals, and child joins stop cleanly; activities run in place |
 | Workflow reference | String name | Client lives in a separate codebase; function refs not possible |
 | Serialization | JSON only | Safe across code changes; fails fast if not serializable |
 | Scaling | Stateless workers + Postgres locking | No external coordinator needed |
 | Code changes mid-flight | Fail with divergence error | Explicit is better than silent mismatch |
-| Signal storage | `events` table (`event_type = 'signal'`) | Preserves ordering; no separate table |
+| Signal storage | `events` table (`event_type = 'signal'`) | Preserves ordering; child completion also uses a reserved signal |
 | JSONB decoding | asyncpg codec registered on pool init | asyncpg returns JSONB as strings by default |
 
 ---
@@ -134,11 +143,12 @@ async def charge_payment(order_id: str, amount: float) -> dict:
 ### Workflows
 
 ```python
-from temporal_light import workflow, sleep, wait_for_signal
+from temporal_light import workflow, sleep, spawn_child, wait_for_child, wait_for_signal
 
 @workflow
 async def order_flow(order_id: str, amount: float) -> dict:
     payment = await charge_payment(order_id, amount)
+    risk_child_id = await spawn_child("risk_check_flow", order_id=order_id, amount=amount)
 
     if amount > 500:
         await sleep(minutes=1)
@@ -147,12 +157,23 @@ async def order_flow(order_id: str, amount: float) -> dict:
             await cancel_order(order_id, reason=approval.get("reason"))
             return {"status": "cancelled"}
 
+    risk = await wait_for_child(risk_child_id)
+    if risk["risk"] == "high":
+        await cancel_order(order_id, reason="Risk check failed")
+        return {"status": "cancelled", "risk": risk}
+
     await send_receipt(order_id, payment["transaction_id"])
-    return {"status": "completed", "transaction_id": payment["transaction_id"]}
+    return {"status": "completed", "transaction_id": payment["transaction_id"], "risk": risk}
+
+
+@workflow
+async def risk_check_flow(order_id: str, amount: float) -> dict:
+    await sleep(seconds=1)
+    return {"order_id": order_id, "risk": "high" if amount >= 5000 else "low"}
 ```
 
 - No direct I/O, system time, or randomness (not enforced in MVP — detected via divergence)
-- `sleep` and `wait_for_signal` are imported from `temporal_light`
+- `sleep`, `wait_for_signal`, `spawn_child`, and `wait_for_child` are imported from `temporal_light`
 - No explicit context parameter — propagated via `contextvars.ContextVar`
 
 ### Worker entry point
@@ -160,10 +181,10 @@ async def order_flow(order_id: str, amount: float) -> dict:
 ```python
 import os
 from temporal_light import Worker
-from flows import order_flow, charge_payment, send_receipt, cancel_order
+from flows import order_flow, risk_check_flow, charge_payment, send_receipt, cancel_order
 
 Worker(
-    workflow_functions=[order_flow],
+    workflow_functions=[order_flow, risk_check_flow],
     activity_functions=[charge_payment, send_receipt, cancel_order],
     database_url=os.environ["DATABASE_URL"],
     worker_concurrency=int(os.environ.get("WORKER_CONCURRENCY", "4")),
@@ -229,7 +250,7 @@ python example/run_client.py
 API_URL=http://my-server:8080 python example/run_client.py
 ```
 
-The example demonstrates a small order (straight through), a large order approved via signal, a large order rejected via signal, and a non-blocking status poll.
+The example demonstrates a small order, a large order approved via signal, a large order rejected via signal, a child risk-check workflow, and a non-blocking status poll.
 
 ---
 
@@ -253,6 +274,8 @@ data: {"type": "failed",     "step_index": 0,  "error_message": "...", "attempt"
 data: {"type": "scheduled",  "step_index": 0,  "step_name": "charge_payment", ...}
 data: {"type": "completed",  "step_index": 0,  "result": {...}, "duration_seconds": 0.5, "attempts_total": 2}
 data: {"type": "sleep",      "step_index": 1,  "wakeup_at": "2026-05-05T12:01:00+00:00"}
+data: {"type": "child_started", "step_index": 2, "child_id": "child-wf-id", "workflow_name": "risk_check_flow", ...}
+data: {"type": "signal",     "step_index": -1, "signal_type": "__child_completed__", "payload": {"child_id": "child-wf-id", "status": "completed", "result": {...}}}
 data: {"type": "signal",     "step_index": -1, "signal_type": "approval", "payload": {"approved": true}}
 data: {"type": "workflow_completed", "step_index": -1, "result": {...}}
 ```
