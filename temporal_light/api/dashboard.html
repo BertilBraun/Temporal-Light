@@ -58,6 +58,11 @@ main { flex: 1; display: grid; grid-template-columns: 360px 1fr; overflow: hidde
 .ev-time { font-size: 0.68rem; color: #94a3b8; white-space: nowrap; }
 .ev-body { margin-top: 7px; font-size: 0.78rem; color: #475569; display: flex; flex-direction: column; gap: 4px; }
 .ev-body pre { background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 5px; padding: 7px 9px; font-size: 0.72rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; color: #334155; }
+.ev-body details { margin-top: 2px; }
+.ev-body details summary { cursor: pointer; font-size: 0.72rem; color: #94a3b8; user-select: none; list-style: none; display: flex; align-items: center; gap: 4px; }
+.ev-body details summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
+.ev-body details[open] summary::before { transform: rotate(90deg); }
+.ev-body details .details-inner { display: flex; flex-direction: column; gap: 4px; margin-top: 5px; }
 .ev-error { color: #dc2626; }
 .ev-dim { color: #94a3b8; }
 .ev.ok { border-left: 3px solid #10b981; }
@@ -232,6 +237,11 @@ function appendEventCard(data) {
   const stepLabel = (data.step_index != null && data.step_index >= 0)
     ? `<span class="ev-step">step ${data.step_index}</span>` : '';
 
+  const bodyHtml = buildBody(data);
+  const bodyContent = data.type === 'scheduled'
+    ? `<details><summary>input</summary><div class="details-inner">${bodyHtml}</div></details>`
+    : bodyHtml;
+
   div.innerHTML = `
     <div class="ev-head">
       <span class="badge b-${data.type}">${data.type}</span>
@@ -239,7 +249,7 @@ function appendEventCard(data) {
       ${stepLabel}
       <span class="ev-time">${fmtTime(data.timestamp)}</span>
     </div>
-    <div class="ev-body">${buildBody(data)}</div>
+    <div class="ev-body">${bodyContent}</div>
   `;
 
   // Remove empty body
