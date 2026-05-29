@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, get_type_hints
 
 from ..db import queries
 from ..exceptions import DivergenceError, WorkflowSuspended
 from ..models import ActivityPolicy, EventType
+from ..serialization import from_json_safe, to_json_safe
 from .context import WorkflowContext
 
 
@@ -34,7 +35,12 @@ async def execute_activity(
     # --- Replay path ---
     completed_event = workflow_context.find_completed_event(step_index)
     if completed_event is not None:
-        return completed_event.payload['result']
+        return from_json_safe(
+            completed_event.payload['result'],
+            _activity_return_annotation(activity_function),
+        )
+
+    serializable_arguments = _serialize_arguments(positional_arguments, keyword_arguments)
 
     # --- Divergence detection ---
     scheduled_event = workflow_context.find_scheduled_event(step_index)
@@ -46,10 +52,18 @@ async def execute_activity(
                 f"but code now calls '{step_name}'. "
                 f'Workflow code changed incompatibly while the workflow was in flight.'
             )
+        recorded_arguments = scheduled_event.payload.get('input')
+        if recorded_arguments != serializable_arguments:
+            raise DivergenceError(
+                f"Step {step_index}: history recorded input arguments {recorded_arguments!r} "
+                f"but code now calls '{step_name}' with {serializable_arguments!r}. "
+                'Activity input arguments changed while the workflow was in flight. '
+                'If the workflow code did not change intentionally, this is a strong signal of '
+                'non-deterministic workflow code outside an activity.'
+            )
 
     # --- Write scheduled event (idempotent: only on first real execution) ---
     if scheduled_event is None:
-        serializable_arguments = _serialize_arguments(positional_arguments, keyword_arguments)
         await queries.write_event(
             workflow_id=workflow_context.workflow_id,
             step_index=step_index,
@@ -89,7 +103,7 @@ async def execute_activity(
         step_name=step_name,
         event_type=EventType.COMPLETED,
         payload={
-            'result': result,
+            'result': to_json_safe(result),
             'duration_seconds': duration_seconds,
             'attempts_total': failed_attempt_count + 1,
         },
@@ -144,6 +158,13 @@ def _serialize_arguments(
 ) -> dict[str, Any]:
     """Convert call arguments into a JSON-safe dict for storage in the event log."""
     return {
-        'args': list(positional_arguments),
-        'kwargs': keyword_arguments,
+        'args': [to_json_safe(argument) for argument in positional_arguments],
+        'kwargs': {
+            key: to_json_safe(value)
+            for key, value in keyword_arguments.items()
+        },
     }
+
+
+def _activity_return_annotation(activity_function: Callable[..., Coroutine[Any, Any, Any]]) -> Any | None:
+    return get_type_hints(activity_function).get('return')

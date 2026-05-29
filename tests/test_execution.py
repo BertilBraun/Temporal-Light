@@ -13,11 +13,17 @@ from temporal_light.db.queries import (
     write_event,
 )
 from temporal_light.decorators import activity, workflow
+from pydantic import BaseModel
+
 from temporal_light.models import EventType, WorkflowStatus
 from temporal_light.children import spawn_child, wait_for_child
 from temporal_light.worker.runner import WorkflowRunner
 
 pytestmark = pytest.mark.integration
+
+
+class PaymentResult(BaseModel):
+    transaction_id: str
 
 
 async def _run(runner: WorkflowRunner, workflow_id: str) -> None:
@@ -175,6 +181,78 @@ async def test_activity_is_not_re_executed_on_replay(clean_database: None) -> No
     await _run(runner, 'wf-1')
     # Activity must NOT have been called a second time — result came from history
     assert execution_count == 1
+
+
+async def test_activity_replay_restores_pydantic_result_from_annotation(clean_database: None) -> None:
+    execution_count = 0
+
+    @activity(retries=0, timeout=5)
+    async def charge() -> PaymentResult:
+        nonlocal execution_count
+        execution_count += 1
+        return PaymentResult(transaction_id='txn-1')
+
+    @workflow
+    async def typed_result_flow() -> str:
+        payment_result = await charge()
+        return payment_result.transaction_id
+
+    await create_workflow('wf-1', 'typed_result_flow', {})
+    await write_event(
+        workflow_id='wf-1',
+        step_index=0,
+        step_name=charge.__qualname__,
+        event_type=EventType.COMPLETED,
+        payload={
+            'result': {'transaction_id': 'txn-1'},
+            'duration_seconds': 0.1,
+            'attempts_total': 1,
+        },
+    )
+    runner = WorkflowRunner({'typed_result_flow': typed_result_flow})
+
+    record = await get_workflow('wf-1')
+    assert record is not None
+    await runner.run_workflow(record)
+
+    assert execution_count == 0
+    history = await load_event_history('wf-1')
+    terminal = history[-1]
+    assert terminal.event_type == EventType.WORKFLOW_COMPLETED
+    assert terminal.payload['result'] == 'txn-1'
+
+
+async def test_activity_input_change_is_reported_as_divergence(clean_database: None) -> None:
+    @activity(retries=0, timeout=5)
+    async def echo(value: int) -> int:
+        return value
+
+    @workflow
+    async def input_divergence_flow() -> int:
+        return await echo(2)
+
+    await create_workflow('wf-1', 'input_divergence_flow', {})
+    await write_event(
+        workflow_id='wf-1',
+        step_index=0,
+        step_name=echo.__qualname__,
+        event_type=EventType.SCHEDULED,
+        payload={'step_name': echo.__qualname__, 'input': {'args': [1], 'kwargs': {}}},
+    )
+
+    runner = WorkflowRunner({'input_divergence_flow': input_divergence_flow})
+    record = await get_workflow('wf-1')
+    assert record is not None
+    await runner.run_workflow(record)
+
+    record = await get_workflow('wf-1')
+    assert record is not None
+    assert record.status == WorkflowStatus.FAILED
+
+    history = await load_event_history('wf-1')
+    wf_failed = next(e for e in history if e.event_type == EventType.WORKFLOW_FAILED)
+    assert 'input arguments changed' in wf_failed.payload['error']
+    assert 'non-deterministic workflow code outside an activity' in wf_failed.payload['error']
 
 
 # ---------------------------------------------------------------------------

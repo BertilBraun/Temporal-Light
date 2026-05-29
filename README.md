@@ -126,19 +126,27 @@ FOR UPDATE SKIP LOCKED;
 ### Activities
 
 ```python
+from pydantic import BaseModel
+
 from temporal_light import activity
 
+
+class PaymentResult(BaseModel):
+    transaction_id: str
+
 @activity(retries=3, timeout=30, backoff_seconds=5)
-async def charge_payment(order_id: str, amount: float) -> dict:
+async def charge_payment(order_id: str, amount: float) -> PaymentResult:
     # Must be idempotent — may be called multiple times on retry.
     response = await payment_gateway.charge(order_id, amount)
-    return {"transaction_id": response.tx_id}
+    return PaymentResult(transaction_id=response.tx_id)
 ```
 
 - `retries`: maximum retry attempts after the first failure
 - `timeout`: seconds before the attempt is considered failed (`asyncio.wait_for`)
 - `backoff_seconds`: fixed delay between attempts (written to DB, not an in-process sleep)
-- Inputs and outputs must be JSON-serializable
+- Activity inputs and outputs are stored as JSON in the event log. Plain JSON values, Pydantic models, dataclass instances, and nested `list`/`tuple`/`dict` containers are converted automatically.
+- Replayed activity results are restored from the activity return annotation, including nested Pydantic models and dataclasses.
+- If a replay reaches an already scheduled activity with different input arguments, the workflow fails with a divergence error because the workflow likely changed or ran non-deterministic code outside an activity.
 
 ### Workflows
 
@@ -148,6 +156,7 @@ from temporal_light import workflow, sleep, spawn_child, wait_for_child, wait_fo
 @workflow
 async def order_flow(order_id: str, amount: float) -> dict:
     payment = await charge_payment(order_id, amount)
+    transaction_id = payment.transaction_id
     risk_child_id = await spawn_child("risk_check_flow", order_id=order_id, amount=amount)
 
     if amount > 500:
@@ -162,8 +171,8 @@ async def order_flow(order_id: str, amount: float) -> dict:
         await cancel_order(order_id, reason="Risk check failed")
         return {"status": "cancelled", "risk": risk}
 
-    await send_receipt(order_id, payment["transaction_id"])
-    return {"status": "completed", "transaction_id": payment["transaction_id"], "risk": risk}
+    await send_receipt(order_id, transaction_id)
+    return {"status": "completed", "transaction_id": transaction_id, "risk": risk}
 
 
 @workflow

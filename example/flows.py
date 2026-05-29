@@ -3,16 +3,22 @@
 import asyncio
 import random
 
+from pydantic import BaseModel
+
 from temporal_light import activity, sleep, spawn_child, wait_for_child, wait_for_signal, workflow
 
 
+class PaymentResult(BaseModel):
+    transaction_id: str
+
+
 @activity(retries=3, timeout=30, backoff_seconds=5)
-async def charge_payment(order_id: str, amount: float) -> dict:
+async def charge_payment(order_id: str, amount: float) -> PaymentResult:
     # Simulate occasional transient failures to demonstrate retries.
     if random.random() < 0.5:
         raise RuntimeError('Payment gateway timeout - will retry.')
     await asyncio.sleep(0.5)
-    return {'transaction_id': f'txn_{order_id}_{int(amount * 100)}'}
+    return PaymentResult(transaction_id=f'txn_{order_id}_{int(amount * 100)}')
 
 
 @activity(retries=1, timeout=10, backoff_seconds=2)
@@ -36,7 +42,7 @@ async def order_flow(order_id: str, amount: float) -> dict:
     Demonstrates: activity retries, child workflows, sleep, and wait_for_signal.
     """
     payment_result = await charge_payment(order_id, amount)
-    transaction_id: str = payment_result['transaction_id']
+    transaction_id = payment_result.transaction_id
 
     # The child starts immediately and runs independently while the parent
     # continues through any approval delay.
