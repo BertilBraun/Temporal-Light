@@ -7,10 +7,8 @@ from typing import Any
 
 from .db import queries
 from .exceptions import ChildWorkflowFailedError, WorkflowSuspended
-from .models import EventRecord, EventType, WorkflowStatus
+from .models import CHILD_COMPLETED_SIGNAL_TYPE, EventRecord, EventType
 from .worker.context import _current_workflow_context
-
-CHILD_COMPLETED_SIGNAL_TYPE = '__child_completed__'
 
 
 async def spawn_child(workflow_name: str, **kwargs: Any) -> str:
@@ -69,10 +67,16 @@ async def wait_for_child(child_id: str) -> Any:
         if fresh_result_signal is not None:
             return _child_signal_result(fresh_result_signal)
 
-    await queries.update_workflow_status(
+    marked_waiting = await queries.mark_workflow_waiting_for_child(
         workflow_id=workflow_context.workflow_id,
-        status=WorkflowStatus.WAITING,
+        child_id=child_id,
     )
+    if not marked_waiting:
+        fresh_history = await queries.load_event_history(workflow_context.workflow_id)
+        fresh_result_signal = _find_child_result_signal(fresh_history, child_id)
+        if fresh_result_signal is not None:
+            return _child_signal_result(fresh_result_signal)
+
     raise WorkflowSuspended(f"Workflow waiting for child '{child_id}'.")
 
 

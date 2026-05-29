@@ -9,7 +9,7 @@ from typing import Any
 
 from ..db import queries
 from ..exceptions import DivergenceError, WorkflowSuspended
-from ..models import ActivityPolicy, EventType, WorkflowStatus
+from ..models import ActivityPolicy, EventType
 from .context import WorkflowContext
 
 
@@ -128,21 +128,13 @@ async def _handle_activity_failure(
             run_at=retry_at,
         )
     else:
-        await queries.write_event(
+        await queries.fail_workflow(
             workflow_id=workflow_context.workflow_id,
-            step_index=-1,
-            step_name='workflow',
-            event_type=EventType.WORKFLOW_FAILED,
-            payload={
-                'error': (
-                    f"Activity '{step_name}' exhausted all {activity_policy.max_retries} "
-                    f'retries. Last error: {type(execution_error).__name__}: {execution_error}'
-                )
-            },
-        )
-        await queries.update_workflow_status(
-            workflow_id=workflow_context.workflow_id,
-            status=WorkflowStatus.FAILED,
+            error_message=(
+                f"Activity '{step_name}' exhausted all {activity_policy.max_retries} "
+                f'retries. Last error: {type(execution_error).__name__}: {execution_error}'
+            ),
+            parent_info=workflow_context.parent_info,
         )
 
 

@@ -5,7 +5,7 @@ from typing import Any
 
 import asyncpg
 
-from ..models import EventRecord, EventType, WorkflowRecord, WorkflowStatus
+from ..models import CHILD_COMPLETED_SIGNAL_TYPE, EventRecord, EventType, WorkflowRecord, WorkflowStatus
 from . import connection
 
 
@@ -220,6 +220,38 @@ async def update_workflow_status(
         )
 
 
+async def mark_workflow_waiting_for_child(workflow_id: str, child_id: str) -> bool:
+    """Mark parent waiting unless the child completion signal is already durable.
+
+    Returns True when the parent was marked waiting. Returns False when the
+    child completion signal already exists, which means the caller must replay
+    history and continue instead of suspending.
+    """
+    pool = await connection.get_connection_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE workflows
+            SET status = $1, updated_at = NOW()
+            WHERE workflow_id = $2
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM events
+                  WHERE workflow_id = $2
+                    AND event_type = $3
+                    AND payload->>'signal_type' = $4
+                    AND payload->'payload'->>'child_id' = $5
+              )
+            """,
+            WorkflowStatus.WAITING.value,
+            workflow_id,
+            EventType.SIGNAL.value,
+            CHILD_COMPLETED_SIGNAL_TYPE,
+            child_id,
+        )
+    return result == 'UPDATE 1'
+
+
 async def update_workflow_run_at(workflow_id: str, run_at: datetime) -> None:
     """Reschedule a workflow to be picked up at a future time (retry backoff, sleep)."""
     pool = await connection.get_connection_pool()
@@ -243,6 +275,40 @@ async def release_workflow_lock(workflow_id: str) -> None:
             """,
             workflow_id,
         )
+
+
+async def complete_workflow(
+    workflow_id: str,
+    result: Any,
+    parent_info: dict[str, Any] | None = None,
+) -> None:
+    """Record workflow completion and wake the parent child join atomically."""
+    await _write_terminal_workflow_event(
+        workflow_id=workflow_id,
+        event_type=EventType.WORKFLOW_COMPLETED,
+        payload={'result': result},
+        status=WorkflowStatus.COMPLETED,
+        parent_info=parent_info,
+        child_status='completed',
+        child_result=result,
+    )
+
+
+async def fail_workflow(
+    workflow_id: str,
+    error_message: str,
+    parent_info: dict[str, Any] | None = None,
+) -> None:
+    """Record workflow failure and wake the parent child join atomically."""
+    await _write_terminal_workflow_event(
+        workflow_id=workflow_id,
+        event_type=EventType.WORKFLOW_FAILED,
+        payload={'error': error_message},
+        status=WorkflowStatus.FAILED,
+        parent_info=parent_info,
+        child_status='failed',
+        child_error=error_message,
+    )
 
 
 async def extend_workflow_lock(workflow_id: str) -> None:
@@ -356,6 +422,81 @@ async def write_signal_and_wake_workflow(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+async def _write_terminal_workflow_event(
+    workflow_id: str,
+    event_type: EventType,
+    payload: dict[str, Any],
+    status: WorkflowStatus,
+    parent_info: dict[str, Any] | None,
+    child_status: str,
+    child_result: Any = None,
+    child_error: str | None = None,
+) -> None:
+    pool = await connection.get_connection_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO events
+                    (workflow_id, step_index, step_name, event_type, payload, timestamp)
+                VALUES ($1, -1, 'workflow', $2, $3::jsonb, NOW())
+                """,
+                workflow_id,
+                event_type.value,
+                payload,
+            )
+            await conn.execute(
+                """
+                UPDATE workflows
+                SET status = $1, updated_at = NOW()
+                WHERE workflow_id = $2
+                """,
+                status.value,
+                workflow_id,
+            )
+
+            if parent_info is not None:
+                child_signal_payload: dict[str, Any] = {
+                    'child_id': parent_info['child_id'],
+                    'status': child_status,
+                }
+                if child_status == 'completed':
+                    child_signal_payload['result'] = child_result
+                else:
+                    child_signal_payload['error'] = child_error
+
+                await conn.execute(
+                    """
+                    INSERT INTO events
+                        (workflow_id, step_index, step_name, event_type, payload, timestamp)
+                    VALUES ($1, -1, 'signal', $2, $3::jsonb, NOW())
+                    """,
+                    parent_info['workflow_id'],
+                    EventType.SIGNAL.value,
+                    {
+                        'signal_type': CHILD_COMPLETED_SIGNAL_TYPE,
+                        'payload': child_signal_payload,
+                    },
+                )
+                await conn.execute(
+                    """
+                    UPDATE workflows
+                    SET run_at = NOW(), status = 'running', updated_at = NOW()
+                    WHERE workflow_id = $1
+                    """,
+                    parent_info['workflow_id'],
+                )
+                await conn.execute(
+                    "SELECT pg_notify('workflow_events', $1)",
+                    parent_info['workflow_id'],
+                )
+
+            await conn.execute(
+                "SELECT pg_notify('workflow_events', $1)",
+                workflow_id,
+            )
 
 
 def _row_to_workflow_record(row: asyncpg.Record) -> WorkflowRecord:

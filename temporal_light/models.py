@@ -5,6 +5,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+CHILD_COMPLETED_SIGNAL_TYPE = '__child_completed__'
+
 
 class WorkflowStatus(Enum):
     RUNNING = 'running'

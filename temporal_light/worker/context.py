@@ -3,7 +3,9 @@ from __future__ import annotations
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from ..models import EventRecord, EventType
+from typing import Any
+
+from ..models import CHILD_COMPLETED_SIGNAL_TYPE, EventRecord, EventType
 
 
 @dataclass
@@ -21,6 +23,7 @@ class WorkflowContext:
 
     workflow_id: str
     event_history: list[EventRecord]
+    parent_info: dict[str, Any] | None = None
     step_counter: int = field(default=0)
 
     def next_step_index(self) -> int:
@@ -47,7 +50,7 @@ class WorkflowContext:
         for event in self.event_history:
             if event.step_index != -1 or event.event_type != EventType.SIGNAL or event.payload is None:
                 continue
-            if event.payload.get('signal_type') != '__child_completed__':
+            if event.payload.get('signal_type') != CHILD_COMPLETED_SIGNAL_TYPE:
                 continue
             signal_payload = event.payload.get('payload')
             if isinstance(signal_payload, dict) and signal_payload.get('child_id') == child_id:
