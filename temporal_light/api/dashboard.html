@@ -263,6 +263,9 @@ function appendEventCard(data) {
 function buildBody(data) {
   const parts = [];
 
+  if (data.input !== undefined && data.input !== null)
+    parts.push(`<pre>${esc(JSON.stringify(data.input, null, 2))}</pre>`);
+
   if (data.result !== undefined)
     parts.push(`<pre>${esc(JSON.stringify(data.result, null, 2))}</pre>`);
 
