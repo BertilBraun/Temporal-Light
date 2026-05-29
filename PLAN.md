@@ -401,7 +401,6 @@ Temporal-Light/
   docker-compose.yml           # prod
   docker-compose.override.yml  # dev: volume mounts + hot reload
   Dockerfile
-  requirements.txt
 ```
 
 ---
@@ -413,10 +412,8 @@ Temporal-Light/
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-RUN pip install -e .
 COPY . .
+RUN pip install -e .
 ```
 
 ### docker-compose.yml (prod)
@@ -623,10 +620,8 @@ temporal-light/
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-RUN pip install -e .
 COPY . .
+RUN pip install -e .
 ```
 
 The same image is built once. `api` and `worker` services use different `command` values — no separate base image or multi-stage complexity.

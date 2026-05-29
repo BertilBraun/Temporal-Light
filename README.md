@@ -237,6 +237,12 @@ The `migrate` service runs first and applies the schema idempotently. Then `api`
 
 ### Development (hot reload)
 
+Install local development dependencies from `pyproject.toml`:
+
+```bash
+pip install -e ".[dev]"
+```
+
 `docker compose up` auto-merges `docker-compose.override.yml`:
 - API uses `uvicorn --reload`
 - Worker uses `watchfiles` — restarts on any Python file change
