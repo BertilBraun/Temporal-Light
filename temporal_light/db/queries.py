@@ -48,30 +48,27 @@ async def create_workflow(
 ) -> None:
     """Insert a new workflow row and its STARTED event atomically."""
     pool = await connection.get_connection_pool()
-    now = datetime.now(timezone.utc)
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
                 """
                 INSERT INTO workflows
                     (workflow_id, name, status, run_at, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $4, $4)
+                VALUES ($1, $2, $3, NOW(), NOW(), NOW())
                 """,
                 workflow_id,
                 workflow_name,
                 WorkflowStatus.RUNNING.value,
-                now,
             )
             await conn.execute(
                 """
                 INSERT INTO events
                     (workflow_id, step_index, step_name, event_type, payload, timestamp)
-                VALUES ($1, -1, 'workflow', $2, $3::jsonb, $4)
+                VALUES ($1, -1, 'workflow', $2, $3::jsonb, NOW())
                 """,
                 workflow_id,
                 EventType.STARTED.value,
                 {'input': workflow_input},
-                now,
             )
 
 
@@ -84,25 +81,23 @@ async def create_child_workflow(
 ) -> None:
     """Create a child workflow and record the parent child_started event atomically."""
     pool = await connection.get_connection_pool()
-    now = datetime.now(timezone.utc)
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
                 """
                 INSERT INTO workflows
                     (workflow_id, name, status, run_at, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $4, $4)
+                VALUES ($1, $2, $3, NOW(), NOW(), NOW())
                 """,
                 child_workflow_id,
                 child_workflow_name,
                 WorkflowStatus.RUNNING.value,
-                now,
             )
             await conn.execute(
                 """
                 INSERT INTO events
                     (workflow_id, step_index, step_name, event_type, payload, timestamp)
-                VALUES ($1, -1, 'workflow', $2, $3::jsonb, $4)
+                VALUES ($1, -1, 'workflow', $2, $3::jsonb, NOW())
                 """,
                 child_workflow_id,
                 EventType.STARTED.value,
@@ -113,13 +108,12 @@ async def create_child_workflow(
                         'child_id': child_workflow_id,
                     },
                 },
-                now,
             )
             await conn.execute(
                 """
                 INSERT INTO events
                     (workflow_id, step_index, step_name, event_type, payload, timestamp)
-                VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
                 """,
                 parent_workflow_id,
                 parent_step_index,
@@ -130,7 +124,6 @@ async def create_child_workflow(
                     'workflow_name': child_workflow_name,
                     'input': child_workflow_input,
                 },
-                now,
             )
             await conn.execute(
                 "SELECT pg_notify('workflow_events', $1)",
