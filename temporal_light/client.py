@@ -34,13 +34,24 @@ class WorkflowHandle:
             data = response.json()
             return WorkflowStatus(data['status'])
 
-    async def result(self) -> Any:
+    async def result(self, timeout: float | None = None) -> Any:
         """Stream events via SSE until the workflow completes, then return its result.
 
         Retries up to _SSE_MAX_ATTEMPTS times with exponential backoff on connection
         errors. Raises WorkflowFailedError if the workflow failed or all retries
-        are exhausted.
+        are exhausted. Raises TimeoutError if timeout expires.
         """
+        if timeout is not None:
+            try:
+                return await asyncio.wait_for(self._result(), timeout=timeout)
+            except asyncio.TimeoutError as timeout_error:
+                raise TimeoutError(
+                    f'Workflow {self.workflow_id} result timed out after {timeout} seconds',
+                ) from timeout_error
+
+        return await self._result()
+
+    async def _result(self) -> Any:
         last_error: Exception | None = None
         for attempt in range(_SSE_MAX_ATTEMPTS):
             if attempt > 0:
