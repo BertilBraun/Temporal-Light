@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
+from concurrent.futures import Executor
 from typing import Any
 
 from ..db import queries
@@ -20,8 +21,10 @@ class WorkflowRunner:
     def __init__(
         self,
         workflow_registry: dict[str, Callable[..., Coroutine[Any, Any, Any]]],
+        activity_executor: Executor | None = None,
     ) -> None:
         self.workflow_registry = workflow_registry
+        self.activity_executor = activity_executor
 
     async def run_workflow(self, workflow_record: WorkflowRecord) -> None:
         """Load history, set context, invoke workflow coroutine, handle outcome."""
@@ -54,6 +57,7 @@ class WorkflowRunner:
             workflow_id=workflow_record.workflow_id,
             event_history=event_history,
             parent_info=parent_info,
+            activity_executor=self.activity_executor,
         )
         context_token = _current_workflow_context.set(workflow_context)
 

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+import importlib
 from collections.abc import Callable, Coroutine
+from concurrent.futures import Executor
 from datetime import datetime, timedelta, timezone
 from typing import Any, get_type_hints
 
@@ -55,7 +58,7 @@ async def execute_activity(
         recorded_arguments = scheduled_event.payload.get('input')
         if recorded_arguments != serializable_arguments:
             raise DivergenceError(
-                f"Step {step_index}: history recorded input arguments {recorded_arguments!r} "
+                f'Step {step_index}: history recorded input arguments {recorded_arguments!r} '
                 f"but code now calls '{step_name}' with {serializable_arguments!r}. "
                 'Activity input arguments changed while the workflow was in flight. '
                 'If the workflow code did not change intentionally, this is a strong signal of '
@@ -78,9 +81,12 @@ async def execute_activity(
     # --- Execute ---
     started_at = datetime.now(timezone.utc)
     try:
-        result = await asyncio.wait_for(
-            activity_function(*positional_arguments, **keyword_arguments),
-            timeout=activity_policy.timeout_seconds,
+        result = await _run_activity_body(
+            activity_executor=workflow_context.activity_executor,
+            activity_function=activity_function,
+            positional_arguments=positional_arguments,
+            keyword_arguments=keyword_arguments,
+            timeout_seconds=activity_policy.timeout_seconds,
         )
     except Exception as execution_error:
         duration_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
@@ -109,6 +115,49 @@ async def execute_activity(
         },
     )
     return result
+
+
+async def _run_activity_body(
+    activity_executor: Executor | None,
+    activity_function: Callable[..., Coroutine[Any, Any, Any]],
+    positional_arguments: tuple[Any, ...],
+    keyword_arguments: dict[str, Any],
+    timeout_seconds: float,
+) -> Any:
+    """Run the user activity body, off the event loop when an executor is configured.
+
+    Dispatching to a process pool keeps a blocking or long-running activity from
+    freezing the worker's event loop, so the lock heartbeat keeps ticking.
+    """
+    if activity_executor is None:
+        return await asyncio.wait_for(
+            activity_function(*positional_arguments, **keyword_arguments),
+            timeout=timeout_seconds,
+        )
+
+    loop = asyncio.get_running_loop()
+    dispatch = functools.partial(
+        _execute_activity_in_subprocess,
+        activity_function.__module__,
+        activity_function.__qualname__,
+        positional_arguments,
+        keyword_arguments,
+    )
+    return await asyncio.wait_for(loop.run_in_executor(activity_executor, dispatch), timeout=timeout_seconds)
+
+
+def _execute_activity_in_subprocess(
+    module_name: str,
+    qualified_name: str,
+    positional_arguments: tuple[Any, ...],
+    keyword_arguments: dict[str, Any],
+) -> Any:
+    module = importlib.import_module(module_name)
+    target: Any = module
+    for attribute_name in qualified_name.split('.'):
+        target = getattr(target, attribute_name)
+    # No workflow context exists in the subprocess, so the @activity wrapper runs the raw body.
+    return asyncio.run(target(*positional_arguments, **keyword_arguments))
 
 
 async def _handle_activity_failure(
@@ -159,10 +208,7 @@ def _serialize_arguments(
     """Convert call arguments into a JSON-safe dict for storage in the event log."""
     return {
         'args': [to_json_safe(argument) for argument in positional_arguments],
-        'kwargs': {
-            key: to_json_safe(value)
-            for key, value in keyword_arguments.items()
-        },
+        'kwargs': {key: to_json_safe(value) for key, value in keyword_arguments.items()},
     }
 
 

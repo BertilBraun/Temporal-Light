@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from .db import queries
@@ -11,11 +10,14 @@ from .models import CHILD_COMPLETED_SIGNAL_TYPE, EventRecord, EventType
 from .worker.context import _current_workflow_context
 
 
-async def spawn_child(workflow_name: str, **kwargs: Any) -> str:
+async def spawn_child(workflow_name: str, *, child_id: str | None = None, **kwargs: Any) -> str:
     """Start a child workflow once and return its workflow id.
 
-    On replay, the existing child_started event is reused so a resumed parent
-    never creates a duplicate child workflow for the same deterministic step.
+    The child id is the idempotency key: create_child_workflow inserts it as the
+    workflows primary key, so two concurrent or replayed parent runs that resolve
+    the same id collapse to a single child. When child_id is omitted it defaults to
+    the parent id and step index; pass a stable business key when the parent's code
+    path before this call is not guaranteed deterministic.
     """
     workflow_context = _current_workflow_context.get()
     step_index = workflow_context.next_step_index()
@@ -24,15 +26,15 @@ async def spawn_child(workflow_name: str, **kwargs: Any) -> str:
     if existing_child_started_event is not None:
         return existing_child_started_event.payload['child_id']
 
-    child_id = str(uuid.uuid4())
+    resolved_child_id = child_id or f'{workflow_context.workflow_id}:{step_index}'
     await queries.create_child_workflow(
         parent_workflow_id=workflow_context.workflow_id,
-        child_workflow_id=child_id,
+        child_workflow_id=resolved_child_id,
         child_workflow_name=workflow_name,
         child_workflow_input=kwargs,
         parent_step_index=step_index,
     )
-    return child_id
+    return resolved_child_id
 
 
 async def wait_for_child(child_id: str) -> Any:

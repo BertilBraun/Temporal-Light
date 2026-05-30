@@ -78,21 +78,30 @@ async def create_child_workflow(
     child_workflow_name: str,
     child_workflow_input: dict[str, Any],
     parent_step_index: int,
-) -> None:
-    """Create a child workflow and record the parent child_started event atomically."""
+) -> bool:
+    """Create a child workflow and record the parent child_started event atomically.
+
+    Idempotent on child_workflow_id: a concurrent or replayed call with the same id
+    is a no-op that returns False, so the parent never gets a duplicate child or a
+    second child_started event for the same logical step.
+    """
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute(
+            inserted_child_id = await conn.fetchval(
                 """
                 INSERT INTO workflows
                     (workflow_id, name, status, run_at, created_at, updated_at)
                 VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+                ON CONFLICT (workflow_id) DO NOTHING
+                RETURNING workflow_id
                 """,
                 child_workflow_id,
                 child_workflow_name,
                 WorkflowStatus.RUNNING.value,
             )
+            if inserted_child_id is None:
+                return False
             await conn.execute(
                 """
                 INSERT INTO events
@@ -129,6 +138,7 @@ async def create_child_workflow(
                 "SELECT pg_notify('workflow_events', $1)",
                 parent_workflow_id,
             )
+    return True
 
 
 async def get_workflow(workflow_id: str) -> WorkflowRecord | None:

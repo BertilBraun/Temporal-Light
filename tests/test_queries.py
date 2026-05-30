@@ -226,3 +226,31 @@ async def test_create_child_workflow_writes_parent_child_started_and_child_start
         'input': {'value': 7},
         'parent': {'workflow_id': 'parent-1', 'child_id': 'child-1'},
     }
+
+
+async def test_create_child_workflow_is_idempotent_on_duplicate_child_id(
+    clean_database: None,
+) -> None:
+    await create_workflow('parent-1', 'parent_flow', {})
+
+    first_created = await create_child_workflow(
+        parent_workflow_id='parent-1',
+        child_workflow_id='child-1',
+        child_workflow_name='child_flow',
+        child_workflow_input={'value': 7},
+        parent_step_index=0,
+    )
+    second_created = await create_child_workflow(
+        parent_workflow_id='parent-1',
+        child_workflow_id='child-1',
+        child_workflow_name='child_flow',
+        child_workflow_input={'value': 7},
+        parent_step_index=0,
+    )
+
+    assert first_created is True
+    assert second_created is False
+
+    parent_history = await load_event_history('parent-1')
+    child_started_events = [e for e in parent_history if e.event_type == EventType.CHILD_STARTED]
+    assert len(child_started_events) == 1

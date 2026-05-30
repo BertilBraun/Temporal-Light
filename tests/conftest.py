@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import AsyncGenerator
 
 import asyncpg
@@ -8,6 +9,10 @@ import pytest
 
 from temporal_light.db import connection
 from temporal_light.db.migrate import run_migration
+
+# Make sibling test support modules (e.g. sample_activities) importable here and in
+# process-pool subprocesses, which inherit sys.path from this process.
+sys.path.insert(0, os.path.dirname(__file__))
 
 TEST_DATABASE_URL = os.environ.get('TEST_DATABASE_URL')
 

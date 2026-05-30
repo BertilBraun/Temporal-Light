@@ -143,6 +143,57 @@ async def test_parent_spawns_multiple_children_once_and_waits_for_results(
     assert terminal.payload['result'] == [10, 20]
 
 
+async def test_two_concurrent_parent_runs_spawn_a_single_child(
+    clean_database: None,
+) -> None:
+    @workflow
+    async def child_flow(value: int) -> int:
+        return value
+
+    await create_workflow('parent-1', 'parent_flow', {})
+
+    from temporal_light.worker.context import WorkflowContext, _current_workflow_context
+
+    # Two parent runs that each loaded history before either committed a child_started
+    # event: with random ids this minted two children, the original bug.
+    spawned_child_ids: list[str] = []
+    for _ in range(2):
+        context = WorkflowContext(workflow_id='parent-1', event_history=[])
+        context_token = _current_workflow_context.set(context)
+        try:
+            spawned_child_ids.append(await spawn_child('child_flow', value=1))
+        finally:
+            _current_workflow_context.reset(context_token)
+
+    assert spawned_child_ids[0] == spawned_child_ids[1]
+
+    parent_history = await load_event_history('parent-1')
+    child_started_events = [e for e in parent_history if e.event_type == EventType.CHILD_STARTED]
+    assert len(child_started_events) == 1
+    assert await get_workflow(spawned_child_ids[0]) is not None
+
+
+async def test_activity_body_runs_in_separate_process(clean_database: None) -> None:
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
+    from sample_activities import add_one_in_subprocess
+
+    @workflow
+    async def pool_flow(value: int) -> dict:
+        return await add_one_in_subprocess(value)
+
+    await create_workflow('wf-1', 'pool_flow', {'value': 41})
+    with ProcessPoolExecutor(max_workers=1) as activity_executor:
+        runner = WorkflowRunner({'pool_flow': pool_flow}, activity_executor=activity_executor)
+        await _run(runner, 'wf-1')
+
+    history = await load_event_history('wf-1')
+    completed = next(e for e in history if e.event_type == EventType.COMPLETED)
+    assert completed.payload['result']['result'] == 42
+    assert completed.payload['result']['pid'] != os.getpid()
+
+
 # ---------------------------------------------------------------------------
 # Replay
 # ---------------------------------------------------------------------------

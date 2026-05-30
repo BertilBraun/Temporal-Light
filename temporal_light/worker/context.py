@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import Executor
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
@@ -25,6 +26,7 @@ class WorkflowContext:
     event_history: list[EventRecord]
     parent_info: dict[str, Any] | None = None
     step_counter: int = field(default=0)
+    activity_executor: Executor | None = None
 
     def next_step_index(self) -> int:
         index = self.step_counter
