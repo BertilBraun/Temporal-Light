@@ -111,7 +111,7 @@ async def send_signal(workflow_id: str, request: SendSignalRequest) -> None:
     workflow_record = await queries.get_workflow(workflow_id)
     if workflow_record is None:
         raise HTTPException(status_code=404, detail='Workflow not found.')
-    if workflow_record.status != WorkflowStatus.RUNNING:
+    if workflow_record.status not in (WorkflowStatus.RUNNING, WorkflowStatus.WAITING):
         raise HTTPException(
             status_code=409,
             detail=f'Workflow is not running (status={workflow_record.status.value}).',
