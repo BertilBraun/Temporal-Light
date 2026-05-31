@@ -230,30 +230,82 @@ async def mark_workflow_waiting_for_child(workflow_id: str, child_id: str) -> bo
     Returns True when the parent was marked waiting. Returns False when the
     child completion signal already exists, which means the caller must replay
     history and continue instead of suspending.
+
+    The workflows row is locked FOR UPDATE before the events table is read in a
+    separate statement, so the existence check sees a fresh post-lock snapshot.
+    A single UPDATE with a NOT EXISTS subquery would not: under READ COMMITTED,
+    after blocking on the row lock it re-runs the subquery against the original
+    statement snapshot and misses a completion the waker just committed, losing
+    the wakeup.
     """
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute(
-            """
-            UPDATE workflows
-            SET status = $1, updated_at = NOW()
-            WHERE workflow_id = $2
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM events
-                  WHERE workflow_id = $2
-                    AND event_type = $3
-                    AND payload->>'signal_type' = $4
-                    AND payload->'payload'->>'child_id' = $5
-              )
-            """,
-            WorkflowStatus.WAITING.value,
-            workflow_id,
-            EventType.SIGNAL.value,
-            CHILD_COMPLETED_SIGNAL_TYPE,
-            child_id,
-        )
-    return result == 'UPDATE 1'
+        async with conn.transaction():
+            await conn.execute('SELECT 1 FROM workflows WHERE workflow_id = $1 FOR UPDATE', workflow_id)
+            completion_exists = await conn.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM events
+                    WHERE workflow_id = $1
+                      AND event_type = $2
+                      AND payload->>'signal_type' = $3
+                      AND payload->'payload'->>'child_id' = $4
+                )
+                """,
+                workflow_id,
+                EventType.SIGNAL.value,
+                CHILD_COMPLETED_SIGNAL_TYPE,
+                child_id,
+            )
+            if completion_exists:
+                return False
+            await conn.execute(
+                'UPDATE workflows SET status = $1, updated_at = NOW() WHERE workflow_id = $2',
+                WorkflowStatus.WAITING.value,
+                workflow_id,
+            )
+    return True
+
+
+async def mark_workflow_waiting_for_signal(workflow_id: str, signal_type: str) -> bool:
+    """Mark a workflow waiting unless the signal it wants has already been received.
+
+    Returns True when the workflow was marked waiting. Returns False when a non-waiting
+    signal of this type already exists, meaning the caller must replay and continue
+    instead of suspending — this closes the lost-wakeup race where the signal arrives
+    between the caller's history read and its suspension.
+
+    Locks the workflows row FOR UPDATE before reading events in a separate statement;
+    see mark_workflow_waiting_for_child for why a NOT EXISTS subquery is not safe here.
+    """
+    pool = await connection.get_connection_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute('SELECT 1 FROM workflows WHERE workflow_id = $1 FOR UPDATE', workflow_id)
+            signal_received = await conn.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM events
+                    WHERE workflow_id = $1
+                      AND event_type = $2
+                      AND payload->>'signal_type' = $3
+                      AND payload->>'status' IS DISTINCT FROM 'waiting'
+                )
+                """,
+                workflow_id,
+                EventType.SIGNAL.value,
+                signal_type,
+            )
+            if signal_received:
+                return False
+            await conn.execute(
+                'UPDATE workflows SET status = $1, updated_at = NOW() WHERE workflow_id = $2',
+                WorkflowStatus.WAITING.value,
+                workflow_id,
+            )
+    return True
 
 
 async def update_workflow_run_at(workflow_id: str, run_at: datetime) -> None:
