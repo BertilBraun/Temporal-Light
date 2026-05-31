@@ -6,7 +6,7 @@ from typing import Any
 
 from .db import queries
 from .exceptions import WorkflowSuspended
-from .models import EventType, WorkflowStatus
+from .models import EventRecord, EventType
 from .worker.context import _current_workflow_context
 
 
@@ -33,21 +33,34 @@ async def wait_for_signal(signal_type: str) -> Any:
             event_type=EventType.SIGNAL,
             payload={'signal_type': signal_type, 'status': 'waiting'},
         )
-        # Guard against the race where the signal arrived between loading history
-        # and writing the waiting marker: re-read fresh DB history and check again.
-        fresh_history = await queries.load_event_history(workflow_context.workflow_id)
-        for event in fresh_history:
-            if (
-                event.step_index == -1
-                and event.event_type == EventType.SIGNAL
-                and event.payload is not None
-                and event.payload.get('signal_type') == signal_type
-                and event.payload.get('status') != 'waiting'
-            ):
-                return event.payload.get('payload')
+        fresh_signal = _find_received_signal(
+            await queries.load_event_history(workflow_context.workflow_id), signal_type
+        )
+        if fresh_signal is not None:
+            return fresh_signal.payload.get('payload')
 
-    await queries.update_workflow_status(
+    marked_waiting = await queries.mark_workflow_waiting_for_signal(
         workflow_id=workflow_context.workflow_id,
-        status=WorkflowStatus.WAITING,
+        signal_type=signal_type,
     )
+    if not marked_waiting:
+        fresh_signal = _find_received_signal(
+            await queries.load_event_history(workflow_context.workflow_id), signal_type
+        )
+        if fresh_signal is not None:
+            return fresh_signal.payload.get('payload')
+
     raise WorkflowSuspended(f"Workflow waiting for signal '{signal_type}'.")
+
+
+def _find_received_signal(events: list[EventRecord], signal_type: str) -> EventRecord | None:
+    for event in events:
+        if (
+            event.step_index == -1
+            and event.event_type == EventType.SIGNAL
+            and event.payload is not None
+            and event.payload.get('signal_type') == signal_type
+            and event.payload.get('status') != 'waiting'
+        ):
+            return event
+    return None
