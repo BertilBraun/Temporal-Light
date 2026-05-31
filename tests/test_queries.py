@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from db_helpers import insert_workflow, set_workflow_run_at_sql
 from temporal_light.db.queries import (
     claim_next_workflow,
     create_workflow,
@@ -133,15 +134,7 @@ async def test_claim_next_workflow_oldest_run_at_claimed_first(
     clean_database: None,
 ) -> None:
     await create_workflow('wf-new', 'my_flow', {})
-    # Force wf-old to have an older run_at by updating directly
-    from temporal_light.db import connection
-
-    pool = await connection.get_connection_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            'INSERT INTO workflows (workflow_id, name, status, run_at, created_at, updated_at) '
-            "VALUES ('wf-old', 'my_flow', 'running', NOW() - INTERVAL '1 hour', NOW(), NOW())"
-        )
+    await insert_workflow('wf-old', run_at_sql="NOW() - INTERVAL '1 hour'")
 
     claimed = await claim_next_workflow('worker-a')
     assert claimed is not None
@@ -170,12 +163,7 @@ async def test_write_signal_makes_workflow_immediately_claimable(
 
     await create_workflow('wf-1', 'my_flow', {})
 
-    # Push run_at far into the future so it's not claimable
-    from temporal_light.db import connection
-
-    pool = await connection.get_connection_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("UPDATE workflows SET run_at = '9999-01-01' WHERE workflow_id = 'wf-1'")
+    await set_workflow_run_at_sql('wf-1', "'9999-01-01'")
 
     not_claimable = await claim_next_workflow('worker-a')
     assert not_claimable is None

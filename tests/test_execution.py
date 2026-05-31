@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from db_helpers import unlock_workflow
 from temporal_light.db.queries import (
     claim_next_workflow,
     create_workflow,
@@ -220,14 +221,7 @@ async def test_activity_is_not_re_executed_on_replay(clean_database: None) -> No
     assert execution_count == 1
 
     # Manually unlock so we can run it again (simulates worker handoff)
-    from temporal_light.db import connection
-
-    pool = await connection.get_connection_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            'UPDATE workflows SET locked_by = NULL, locked_until = NULL, '
-            "status = 'running', run_at = NOW() WHERE workflow_id = 'wf-1'"
-        )
+    await unlock_workflow('wf-1')
 
     await _run(runner, 'wf-1')
     # Activity must NOT have been called a second time — result came from history
@@ -299,7 +293,6 @@ async def test_activity_input_change_is_reported_as_divergence(clean_database: N
     record = await get_workflow('wf-1')
     assert record is not None
     assert record.status == WorkflowStatus.FAILED
-
     history = await load_event_history('wf-1')
     wf_failed = next(e for e in history if e.event_type == EventType.WORKFLOW_FAILED)
     assert 'input arguments changed' in wf_failed.payload['error']
@@ -339,14 +332,7 @@ async def test_activity_retry_increments_failed_event_count(
     assert failed_events[0].payload['attempt'] == 0
 
     # Unlock for retry
-    from temporal_light.db import connection
-
-    pool = await connection.get_connection_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            'UPDATE workflows SET locked_by = NULL, locked_until = NULL, '
-            "status = 'running', run_at = NOW() WHERE workflow_id = 'wf-1'"
-        )
+    await unlock_workflow('wf-1')
 
     # Second run (replay + retry): succeeds
     await _run(runner, 'wf-1')
@@ -373,9 +359,8 @@ async def test_activity_exhausting_retries_marks_workflow_failed(
     await create_workflow('wf-1', 'failing_flow', {})
     runner = WorkflowRunner({'failing_flow': failing_flow})
 
-    pool = await _get_pool()
     await _run(runner, 'wf-1')  # attempt 1 → fails, schedules retry
-    await _unlock('wf-1', pool)
+    await unlock_workflow('wf-1')
     await _run(runner, 'wf-1')  # attempt 2 → exhausts retries → FAILED
 
     record = await get_workflow('wf-1')
@@ -442,23 +427,3 @@ async def test_unknown_workflow_name_marks_workflow_failed(
     record = await get_workflow('wf-1')
     assert record is not None
     assert record.status == WorkflowStatus.FAILED
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _get_pool():
-    from temporal_light.db import connection
-
-    return await connection.get_connection_pool()
-
-
-async def _unlock(workflow_id: str, pool) -> None:
-    async with pool.acquire() as conn:
-        await conn.execute(
-            'UPDATE workflows SET locked_by = NULL, locked_until = NULL, '
-            "status = 'running', run_at = NOW() WHERE workflow_id = $1",
-            workflow_id,
-        )

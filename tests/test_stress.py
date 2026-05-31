@@ -41,9 +41,8 @@ def _spawn_worker(spawn_context: multiprocessing.context.BaseContext, database_u
 
 async def _await_all_terminal(expected_workflow_count: int) -> dict[str, int]:
     deadline = time.monotonic() + _GLOBAL_TIMEOUT_SECONDS
-    pool = await connection.get_connection_pool()
     while True:
-        async with pool.acquire() as conn:
+        async with connection.acquire() as conn:
             rows = await conn.fetch('SELECT status, count(*) AS n FROM workflows GROUP BY status')
         status_counts = {row['status']: row['n'] for row in rows}
         total = sum(status_counts.values())
@@ -95,8 +94,7 @@ async def test_stress_multiprocess_workflows_are_correct_and_unique(clean_databa
         for worker in workers:
             worker.join(timeout=10)
 
-    pool = await connection.get_connection_pool()
-    async with pool.acquire() as conn:
+    async with connection.acquire() as conn:
         double_executed = await conn.fetch(
             """
             SELECT workflow_id, step_index

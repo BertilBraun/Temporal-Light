@@ -7,12 +7,13 @@ from collections.abc import AsyncGenerator
 import asyncpg
 import pytest
 
-from temporal_light.db import connection
-from temporal_light.db.migrate import run_migration
-
 # Make sibling test support modules (e.g. sample_activities) importable here and in
 # process-pool subprocesses, which inherit sys.path from this process.
 sys.path.insert(0, os.path.dirname(__file__))
+
+from db_helpers import truncate_database
+from temporal_light.db import connection
+from temporal_light.db.migrate import run_migration
 
 TEST_DATABASE_URL = os.environ.get('TEST_DATABASE_URL')
 RUN_STRESS_TEST = os.environ.get('RUN_STRESS_TEST')
@@ -37,12 +38,14 @@ async def db_pool() -> AsyncGenerator[asyncpg.Pool, None]:
     )
     await run_migration(pool=pool)
     # Register this pool as the module-level singleton so production code finds it.
-    connection._connection_pool = pool
-    yield pool
-    await pool.close()
+    previous_pool = connection.set_connection_pool(pool)
+    try:
+        yield pool
+    finally:
+        connection.set_connection_pool(previous_pool)
+        await pool.close()
 
 
 @pytest.fixture
 async def clean_database(db_pool: asyncpg.Pool) -> None:
-    async with db_pool.acquire() as conn:
-        await conn.execute('TRUNCATE TABLE events, workflows, workers RESTART IDENTITY CASCADE')
+    await truncate_database()

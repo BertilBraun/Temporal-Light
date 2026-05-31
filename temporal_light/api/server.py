@@ -143,8 +143,7 @@ async def list_workflows(
     where_clause = f'WHERE {" AND ".join(conditions)}' if conditions else ''
     parameters.append(limit)
 
-    pool = await connection.get_connection_pool()
-    async with pool.acquire() as conn:
+    async with connection.acquire() as conn:
         rows = await conn.fetch(
             f'SELECT * FROM workflows {where_clause} ORDER BY created_at DESC LIMIT ${len(parameters)}',
             *parameters,
