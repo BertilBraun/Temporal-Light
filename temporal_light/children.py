@@ -41,9 +41,9 @@ async def wait_for_child(child_id: str) -> Any:
     """Suspend until child_id completes, then return its result.
 
     Child completion is delivered as a reserved signal in the parent's event
-    history. A fresh history read after writing the waiting marker closes the
-    race where the child completes after the parent loaded history but before
-    the parent reached wait_for_child().
+    history. mark_workflow_waiting_for_child checks for that completion under a row
+    lock and refuses to suspend if it already arrived, which closes the race where
+    the child completes between loading history and reaching this call.
     """
     workflow_context = _current_workflow_context.get()
     workflow_context.next_step_index()
@@ -64,10 +64,6 @@ async def wait_for_child(child_id: str) -> Any:
                 'child_id': child_id,
             },
         )
-        fresh_history = await queries.load_event_history(workflow_context.workflow_id)
-        fresh_result_signal = _find_child_result_signal(fresh_history, child_id)
-        if fresh_result_signal is not None:
-            return _child_signal_result(fresh_result_signal)
 
     marked_waiting = await queries.mark_workflow_waiting_for_child(
         workflow_id=workflow_context.workflow_id,

@@ -65,9 +65,6 @@ async def test_child_completion_uses_atomic_terminal_query(monkeypatch) -> None:
     async def forbidden_call(*args: Any, **kwargs: Any) -> None:
         raise AssertionError('terminal child completion must use complete_workflow()')
 
-    async def fake_release_workflow_lock(workflow_id: str) -> None:
-        calls.append(('release_workflow_lock', workflow_id))
-
     monkeypatch.setattr('temporal_light.worker.runner.queries.load_event_history', fake_load_event_history)
     monkeypatch.setattr(
         'temporal_light.worker.runner.queries.complete_workflow',
@@ -77,11 +74,12 @@ async def test_child_completion_uses_atomic_terminal_query(monkeypatch) -> None:
     monkeypatch.setattr('temporal_light.worker.runner.queries.write_event', forbidden_call)
     monkeypatch.setattr('temporal_light.worker.runner.queries.update_workflow_status', forbidden_call)
     monkeypatch.setattr('temporal_light.worker.runner.queries.write_signal_and_wake_workflow', forbidden_call)
-    monkeypatch.setattr('temporal_light.worker.runner.queries.release_workflow_lock', fake_release_workflow_lock)
 
     runner = WorkflowRunner({'child_flow': child_flow})
     await runner.run_workflow(_workflow_record('child-1', 'child_flow'))
 
+    # complete_workflow now also clears the lock in its terminal update, so the runner
+    # no longer issues a separate release call.
     assert calls == [
         (
             'complete_workflow',
@@ -91,5 +89,4 @@ async def test_child_completion_uses_atomic_terminal_query(monkeypatch) -> None:
                 {'workflow_id': 'parent-1', 'child_id': 'child-1'},
             ),
         ),
-        ('release_workflow_lock', 'child-1'),
     ]

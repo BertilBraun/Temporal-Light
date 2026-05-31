@@ -347,4 +347,4 @@ Integration tests are skipped automatically when `TEST_DATABASE_URL` is not set.
 
 ## Roadmap
 
-Planned engineering investments beyond the MVP are documented in [FUTURE.md](FUTURE.md).
+Planned engineering investments beyond the MVP are documented in [FUTURE.md](documentation/FUTURE.md).

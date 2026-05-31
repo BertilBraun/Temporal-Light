@@ -6,6 +6,7 @@ from collections.abc import Callable, Coroutine
 from concurrent.futures import Executor
 from typing import Any
 
+from .. import profiling
 from ..db import queries
 from ..exceptions import DivergenceError, WorkflowSuspended
 from ..models import EventType, WorkflowRecord
@@ -27,8 +28,13 @@ class WorkflowRunner:
         self.activity_executor = activity_executor
 
     async def run_workflow(self, workflow_record: WorkflowRecord) -> None:
+        with profiling.timed('run'):
+            await self._run_workflow(workflow_record)
+
+    async def _run_workflow(self, workflow_record: WorkflowRecord) -> None:
         """Load history, set context, invoke workflow coroutine, handle outcome."""
         event_history = await queries.load_event_history(workflow_record.workflow_id)
+        profiling.record('history_rows', len(event_history))
 
         started_event = next(
             (e for e in event_history if e.event_type == EventType.STARTED),
@@ -91,7 +97,6 @@ class WorkflowRunner:
             )
         finally:
             _current_workflow_context.reset(context_token)
-            await queries.release_workflow_lock(workflow_record.workflow_id)
 
 
 async def _fail_workflow(
@@ -104,4 +109,3 @@ async def _fail_workflow(
         error_message=error_message,
         parent_info=parent_info,
     )
-    await queries.release_workflow_lock(workflow_id)

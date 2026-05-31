@@ -153,16 +153,10 @@ async def claim_next_workflow(worker_identifier: str) -> WorkflowRecord | None:
     Uses FOR UPDATE SKIP LOCKED so multiple workers never claim the same row.
     Returns None if no claimable workflow exists.
     """
+    # The worker row is registered at startup and refreshed by the heartbeat loop,
+    # so there is no need to upsert it on every claim.
     lock_duration_seconds = config.lock_duration_seconds()
     async with connection.transaction() as conn:
-        await conn.execute(
-            """
-            INSERT INTO workers (worker_id, last_seen)
-            VALUES ($1, NOW())
-            ON CONFLICT (worker_id) DO UPDATE SET last_seen = NOW()
-            """,
-            worker_identifier,
-        )
         row = await conn.fetchrow(
             """
             SELECT *
@@ -249,7 +243,11 @@ async def mark_workflow_waiting_for_child(workflow_id: str, child_id: str) -> bo
         if completion_exists:
             return False
         await conn.execute(
-            'UPDATE workflows SET status = $1, updated_at = NOW() WHERE workflow_id = $2',
+            """
+            UPDATE workflows
+            SET status = $1, locked_by = NULL, locked_until = NULL, updated_at = NOW()
+            WHERE workflow_id = $2
+            """,
             WorkflowStatus.WAITING.value,
             workflow_id,
         )
@@ -287,7 +285,11 @@ async def mark_workflow_waiting_for_signal(workflow_id: str, signal_type: str) -
         if signal_received:
             return False
         await conn.execute(
-            'UPDATE workflows SET status = $1, updated_at = NOW() WHERE workflow_id = $2',
+            """
+            UPDATE workflows
+            SET status = $1, locked_by = NULL, locked_until = NULL, updated_at = NOW()
+            WHERE workflow_id = $2
+            """,
             WorkflowStatus.WAITING.value,
             workflow_id,
         )
@@ -295,24 +297,20 @@ async def mark_workflow_waiting_for_signal(workflow_id: str, signal_type: str) -
 
 
 async def update_workflow_run_at(workflow_id: str, run_at: datetime) -> None:
-    """Reschedule a workflow to be picked up at a future time (retry backoff, sleep)."""
-    async with connection.acquire() as conn:
-        await conn.execute(
-            'UPDATE workflows SET run_at = $1, updated_at = NOW() WHERE workflow_id = $2',
-            run_at,
-            workflow_id,
-        )
+    """Reschedule a suspended workflow and release its lock in one statement.
 
-
-async def release_workflow_lock(workflow_id: str) -> None:
-    """Clear the lock columns so another worker (or the same one) can claim this workflow."""
+    Both callers (sleep, retry backoff) are suspending, so clearing the lock here
+    lets a later wake claim the workflow immediately instead of paying a separate
+    release round-trip and waiting out the lock.
+    """
     async with connection.acquire() as conn:
         await conn.execute(
             """
             UPDATE workflows
-            SET locked_by = NULL, locked_until = NULL, updated_at = NOW()
-            WHERE workflow_id = $1
+            SET run_at = $1, locked_by = NULL, locked_until = NULL, updated_at = NOW()
+            WHERE workflow_id = $2
             """,
+            run_at,
             workflow_id,
         )
 
@@ -483,7 +481,7 @@ async def _write_terminal_workflow_event(
         await conn.execute(
             """
             UPDATE workflows
-            SET status = $1, updated_at = NOW()
+            SET status = $1, locked_by = NULL, locked_until = NULL, updated_at = NOW()
             WHERE workflow_id = $2
             """,
             status.value,

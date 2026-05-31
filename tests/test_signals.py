@@ -31,12 +31,10 @@ async def test_wait_for_signal_returns_payload_when_signal_wins_waiting_race(mon
     async def fake_write_event(**kwargs: Any) -> None:
         calls.append('write_event')
 
-    # First read (right after writing the marker) misses; the signal lands before
-    # the conditional mark, which then refuses to suspend.
-    history_reads = iter([[], [received]])
-
     async def fake_load_event_history(workflow_id: str) -> list[EventRecord]:
-        return next(history_reads)
+        # The only reload happens after the mark refuses to suspend; it must surface
+        # the signal that won the race.
+        return [received]
 
     async def fake_mark_workflow_waiting_for_signal(workflow_id: str, signal_type: str) -> bool:
         calls.append('mark_waiting')

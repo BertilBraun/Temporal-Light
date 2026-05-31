@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .. import config
+from .. import config, profiling
 from ..db import queries
 from ..models import WorkflowRecord
 from .runner import WorkflowRunner
@@ -34,7 +34,7 @@ async def run_scheduler_loop(
     )
 
     try:
-        had_work = False
+        had_work = True
         while True:
             if not had_work:
                 await asyncio.sleep(_IDLE_POLL_INTERVAL_SECONDS)
@@ -42,12 +42,14 @@ async def run_scheduler_loop(
             # Reap finished tasks.
             active_tasks = {task for task in active_tasks if not task.done()}
 
+            # Being at capacity is busy, not idle: keep had_work so freeing a slot
+            # claims immediately instead of stalling for the idle poll interval.
             if len(active_tasks) >= worker_concurrency:
-                had_work = False
                 await asyncio.sleep(_AT_CAPACITY_YIELD_SECONDS)
                 continue
 
-            workflow_record = await queries.claim_next_workflow(worker_identifier)
+            with profiling.db_actor('claim'):
+                workflow_record = await queries.claim_next_workflow(worker_identifier)
             if workflow_record is None:
                 had_work = False
                 continue
@@ -98,7 +100,8 @@ async def _workflow_lock_heartbeat_loop(workflow_id: str) -> None:
     while True:
         await asyncio.sleep(interval_seconds)
         try:
-            await queries.extend_workflow_lock(workflow_id)
+            with profiling.db_actor('heartbeat'):
+                await queries.extend_workflow_lock(workflow_id)
         except Exception:
             logger.exception('Failed to extend lock for workflow %s', workflow_id)
 
@@ -109,6 +112,7 @@ async def _worker_heartbeat_loop(worker_identifier: str) -> None:
     while True:
         await asyncio.sleep(interval_seconds)
         try:
-            await queries.update_worker_heartbeat(worker_identifier)
+            with profiling.db_actor('heartbeat'):
+                await queries.update_worker_heartbeat(worker_identifier)
         except Exception:
             logger.exception('Failed to update heartbeat for worker %s', worker_identifier)

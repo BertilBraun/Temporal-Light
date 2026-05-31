@@ -33,11 +33,6 @@ async def wait_for_signal(signal_type: str) -> Any:
             event_type=EventType.SIGNAL,
             payload={'signal_type': signal_type, 'status': 'waiting'},
         )
-        fresh_signal = _find_received_signal(
-            await queries.load_event_history(workflow_context.workflow_id), signal_type
-        )
-        if fresh_signal is not None:
-            return fresh_signal.payload.get('payload')
 
     marked_waiting = await queries.mark_workflow_waiting_for_signal(
         workflow_id=workflow_context.workflow_id,

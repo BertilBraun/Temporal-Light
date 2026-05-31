@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import functools
 import importlib
+import time
 from collections.abc import Callable, Coroutine
 from concurrent.futures import Executor
 from datetime import datetime, timedelta, timezone
 from typing import Any, get_type_hints
 
+from .. import profiling
 from ..db import queries
 from ..exceptions import DivergenceError, WorkflowSuspended
 from ..models import ActivityPolicy, EventType
@@ -38,12 +40,14 @@ async def execute_activity(
     # --- Replay path ---
     completed_event = workflow_context.find_completed_event(step_index)
     if completed_event is not None:
-        return from_json_safe(
-            completed_event.payload['result'],
-            _activity_return_annotation(activity_function),
-        )
+        with profiling.timed('serialize'):
+            return from_json_safe(
+                completed_event.payload['result'],
+                _activity_return_annotation(activity_function),
+            )
 
-    serializable_arguments = _serialize_arguments(positional_arguments, keyword_arguments)
+    with profiling.timed('serialize'):
+        serializable_arguments = _serialize_arguments(positional_arguments, keyword_arguments)
 
     # --- Divergence detection ---
     scheduled_event = workflow_context.find_scheduled_event(step_index)
@@ -81,13 +85,15 @@ async def execute_activity(
     # --- Execute ---
     started_at = datetime.now(timezone.utc)
     try:
-        result = await _run_activity_body(
-            activity_executor=workflow_context.activity_executor,
-            activity_function=activity_function,
-            positional_arguments=positional_arguments,
-            keyword_arguments=keyword_arguments,
-            timeout_seconds=activity_policy.timeout_seconds,
-        )
+        with profiling.timed('activity.total'):
+            result, user_seconds = await _run_activity_body(
+                activity_executor=workflow_context.activity_executor,
+                activity_function=activity_function,
+                positional_arguments=positional_arguments,
+                keyword_arguments=keyword_arguments,
+                timeout_seconds=activity_policy.timeout_seconds,
+            )
+        profiling.record('activity.user', user_seconds)
     except Exception as execution_error:
         duration_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
         await _handle_activity_failure(
@@ -103,13 +109,15 @@ async def execute_activity(
 
     # --- Success ---
     duration_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+    with profiling.timed('serialize'):
+        serialized_result = to_json_safe(result)
     await queries.write_event(
         workflow_id=workflow_context.workflow_id,
         step_index=step_index,
         step_name=step_name,
         event_type=EventType.COMPLETED,
         payload={
-            'result': to_json_safe(result),
+            'result': serialized_result,
             'duration_seconds': duration_seconds,
             'attempts_total': failed_attempt_count + 1,
         },
@@ -123,17 +131,21 @@ async def _run_activity_body(
     positional_arguments: tuple[Any, ...],
     keyword_arguments: dict[str, Any],
     timeout_seconds: float,
-) -> Any:
+) -> tuple[Any, float]:
     """Run the user activity body, off the event loop when an executor is configured.
 
+    Returns the result and the pure body wall time (measured in the subprocess when
+    one is used), so the caller can separate user-code time from dispatch overhead.
     Dispatching to a process pool keeps a blocking or long-running activity from
     freezing the worker's event loop, so the lock heartbeat keeps ticking.
     """
     if activity_executor is None:
-        return await asyncio.wait_for(
+        started = time.perf_counter()
+        result = await asyncio.wait_for(
             activity_function(*positional_arguments, **keyword_arguments),
             timeout=timeout_seconds,
         )
+        return result, time.perf_counter() - started
 
     loop = asyncio.get_running_loop()
     dispatch = functools.partial(
@@ -151,13 +163,15 @@ def _execute_activity_in_subprocess(
     qualified_name: str,
     positional_arguments: tuple[Any, ...],
     keyword_arguments: dict[str, Any],
-) -> Any:
+) -> tuple[Any, float]:
     module = importlib.import_module(module_name)
     target: Any = module
     for attribute_name in qualified_name.split('.'):
         target = getattr(target, attribute_name)
     # No workflow context exists in the subprocess, so the @activity wrapper runs the raw body.
-    return asyncio.run(target(*positional_arguments, **keyword_arguments))
+    started = time.perf_counter()
+    result = asyncio.run(target(*positional_arguments, **keyword_arguments))
+    return result, time.perf_counter() - started
 
 
 async def _handle_activity_failure(

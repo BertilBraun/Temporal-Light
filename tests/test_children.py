@@ -38,11 +38,11 @@ async def test_wait_for_child_returns_result_when_completion_wins_waiting_race(m
     async def fake_write_event(**kwargs: Any) -> None:
         calls.append(('write_event', kwargs))
 
-    history_reads = iter([[], [child_signal]])
-
     async def fake_load_event_history(workflow_id: str) -> list[EventRecord]:
+        # The only reload happens after the mark refuses to suspend; it must surface
+        # the completion that won the race.
         calls.append(('load_event_history', workflow_id))
-        return next(history_reads)
+        return [child_signal]
 
     async def fake_mark_workflow_waiting_for_child(
         workflow_id: str,

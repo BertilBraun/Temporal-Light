@@ -3,10 +3,45 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import asyncpg
 
+from .. import profiling
+
 _connection_pool: asyncpg.Pool | None = None
+
+
+class _TimingConnection:
+    """Delegating wrapper that records query wall time into the profiling buckets."""
+
+    __slots__ = ('_connection',)
+
+    def __init__(self, connection: asyncpg.Connection) -> None:
+        self._connection = connection
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        with profiling.timed(profiling.current_db_bucket()):
+            return await self._connection.execute(*args, **kwargs)
+
+    async def executemany(self, *args: Any, **kwargs: Any) -> Any:
+        with profiling.timed(profiling.current_db_bucket()):
+            return await self._connection.executemany(*args, **kwargs)
+
+    async def fetch(self, *args: Any, **kwargs: Any) -> Any:
+        with profiling.timed(profiling.current_db_bucket()):
+            return await self._connection.fetch(*args, **kwargs)
+
+    async def fetchrow(self, *args: Any, **kwargs: Any) -> Any:
+        with profiling.timed(profiling.current_db_bucket()):
+            return await self._connection.fetchrow(*args, **kwargs)
+
+    async def fetchval(self, *args: Any, **kwargs: Any) -> Any:
+        with profiling.timed(profiling.current_db_bucket()):
+            return await self._connection.fetchval(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
 
 
 async def _initialize_connection(conn: asyncpg.Connection) -> None:
@@ -40,7 +75,7 @@ async def get_connection_pool() -> asyncpg.Pool:
 async def acquire() -> AsyncGenerator[asyncpg.Connection, None]:
     pool = await get_connection_pool()
     async with pool.acquire() as conn:
-        yield conn
+        yield _TimingConnection(conn) if profiling.enabled() else conn
 
 
 @asynccontextmanager

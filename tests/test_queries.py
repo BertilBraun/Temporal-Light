@@ -12,6 +12,7 @@ from temporal_light.db.queries import (
     get_workflow,
     load_event_history,
     load_events_after,
+    register_worker,
     write_event,
     write_signal_and_wake_workflow,
 )
@@ -106,6 +107,7 @@ async def test_load_events_after_returns_only_newer_events(clean_database: None)
 
 
 async def test_claim_next_workflow_locks_the_row(clean_database: None) -> None:
+    await register_worker('worker-a')
     await create_workflow('wf-1', 'my_flow', {})
 
     claimed = await claim_next_workflow('worker-a')
@@ -116,6 +118,8 @@ async def test_claim_next_workflow_locks_the_row(clean_database: None) -> None:
 
 
 async def test_claim_next_workflow_second_worker_gets_nothing(clean_database: None) -> None:
+    await register_worker('worker-a')
+    await register_worker('worker-b')
     await create_workflow('wf-1', 'my_flow', {})
     await claim_next_workflow('worker-a')
 
@@ -133,6 +137,7 @@ async def test_claim_next_workflow_returns_none_when_no_workflows(
 async def test_claim_next_workflow_oldest_run_at_claimed_first(
     clean_database: None,
 ) -> None:
+    await register_worker('worker-a')
     await create_workflow('wf-new', 'my_flow', {})
     await insert_workflow('wf-old', run_at_sql="NOW() - INTERVAL '1 hour'")
 
@@ -160,7 +165,7 @@ async def test_write_signal_stores_signal_event(clean_database: None) -> None:
 async def test_write_signal_makes_workflow_immediately_claimable(
     clean_database: None,
 ) -> None:
-
+    await register_worker('worker-a')
     await create_workflow('wf-1', 'my_flow', {})
 
     await set_workflow_run_at_sql('wf-1', "'9999-01-01'")
