@@ -5,6 +5,7 @@ from typing import Any
 
 import asyncpg
 
+from .. import config
 from ..models import CHILD_COMPLETED_SIGNAL_TYPE, EventRecord, EventType, WorkflowRecord, WorkflowStatus
 from . import connection
 
@@ -160,7 +161,7 @@ async def claim_next_workflow(worker_identifier: str) -> WorkflowRecord | None:
     Returns None if no claimable workflow exists.
     """
     pool = await connection.get_connection_pool()
-    lock_duration_seconds = 30
+    lock_duration_seconds = config.lock_duration_seconds()
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
@@ -315,16 +316,17 @@ async def fail_workflow(
 
 
 async def extend_workflow_lock(workflow_id: str) -> None:
-    """Push locked_until forward by 30 seconds (heartbeat)."""
+    """Push locked_until forward by the configured lock duration (heartbeat)."""
     pool = await connection.get_connection_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             """
             UPDATE workflows
-            SET locked_until = NOW() + INTERVAL '30 seconds', updated_at = NOW()
+            SET locked_until = NOW() + make_interval(secs => $2), updated_at = NOW()
             WHERE workflow_id = $1
             """,
             workflow_id,
+            config.lock_duration_seconds(),
         )
 
 

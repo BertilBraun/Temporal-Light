@@ -16,10 +16,7 @@ def to_json_safe(value: Any) -> Any:
         return value.model_dump(mode='json')
 
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {
-            field.name: to_json_safe(getattr(value, field.name))
-            for field in dataclasses.fields(value)
-        }
+        return {field.name: to_json_safe(getattr(value, field.name)) for field in dataclasses.fields(value)}
 
     if isinstance(value, list):
         return [to_json_safe(item) for item in value]
@@ -101,8 +98,7 @@ def _restore_union(value: Any, member_annotations: tuple[Any, ...]) -> Any:
 def _restore_dataclass(value: dict[Any, Any], annotation: type[Any]) -> Any:
     field_annotations = get_type_hints(annotation)
     restored_fields = {
-        str(key): from_json_safe(field_value, field_annotations.get(str(key)))
-        for key, field_value in value.items()
+        str(key): from_json_safe(field_value, field_annotations.get(str(key))) for key, field_value in value.items()
     }
     return annotation(**restored_fields)
 

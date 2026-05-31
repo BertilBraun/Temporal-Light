@@ -5,14 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from .. import config
 from ..db import queries
 from ..models import WorkflowRecord
 from .runner import WorkflowRunner
 
 logger = logging.getLogger(__name__)
 
-_HEARTBEAT_INTERVAL_SECONDS = 10
-_LOCK_EXTENSION_SECONDS = 30
 _IDLE_POLL_INTERVAL_SECONDS = 1
 _AT_CAPACITY_YIELD_SECONDS = 0.1
 
@@ -94,9 +93,10 @@ async def _run_workflow_with_heartbeat(
 
 
 async def _workflow_lock_heartbeat_loop(workflow_id: str) -> None:
-    """Extend the workflow lock every HEARTBEAT_INTERVAL_SECONDS seconds."""
+    """Extend the workflow lock once per configured heartbeat interval."""
+    interval_seconds = config.heartbeat_interval_seconds()
     while True:
-        await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
+        await asyncio.sleep(interval_seconds)
         try:
             await queries.extend_workflow_lock(workflow_id)
         except Exception:
@@ -105,8 +105,9 @@ async def _workflow_lock_heartbeat_loop(workflow_id: str) -> None:
 
 async def _worker_heartbeat_loop(worker_identifier: str) -> None:
     """Keep the worker's last_seen timestamp current in the workers table."""
+    interval_seconds = config.heartbeat_interval_seconds()
     while True:
-        await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
+        await asyncio.sleep(interval_seconds)
         try:
             await queries.update_worker_heartbeat(worker_identifier)
         except Exception:

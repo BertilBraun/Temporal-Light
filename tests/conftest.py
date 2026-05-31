@@ -15,15 +15,17 @@ from temporal_light.db.migrate import run_migration
 sys.path.insert(0, os.path.dirname(__file__))
 
 TEST_DATABASE_URL = os.environ.get('TEST_DATABASE_URL')
+RUN_STRESS_TEST = os.environ.get('RUN_STRESS_TEST')
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if TEST_DATABASE_URL:
-        return
-    skip = pytest.mark.skip(reason='TEST_DATABASE_URL not set')
+    skip_integration = pytest.mark.skip(reason='TEST_DATABASE_URL not set')
+    skip_stress = pytest.mark.skip(reason='RUN_STRESS_TEST not set')
     for item in items:
-        if item.get_closest_marker('integration'):
-            item.add_marker(skip)
+        if item.get_closest_marker('integration') and not TEST_DATABASE_URL:
+            item.add_marker(skip_integration)
+        if item.get_closest_marker('stress') and not RUN_STRESS_TEST:
+            item.add_marker(skip_stress)
 
 
 @pytest.fixture(scope='session')
