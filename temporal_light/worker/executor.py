@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import functools
 import importlib
+import inspect
 import time
+import traceback
 from collections.abc import Callable, Coroutine
 from concurrent.futures import Executor
+from contextvars import Context
 from datetime import datetime, timedelta, timezone
 from typing import Any, get_type_hints
 
@@ -17,6 +20,22 @@ from ..exceptions import DivergenceError, WorkflowSuspended
 from ..models import ActivityPolicy, EventType
 from ..serialization import from_json_safe, to_json_safe
 from .context import WorkflowContext
+
+
+class ActivitySubprocessError(Exception):
+    def __init__(
+        self,
+        original_type: str,
+        original_message: str,
+        traceback_text: str,
+    ) -> None:
+        super().__init__(original_type, original_message, traceback_text)
+        self.original_type = original_type
+        self.original_message = original_message
+        self.traceback_text = traceback_text
+
+    def __str__(self) -> str:
+        return f'{self.original_type}: {self.original_message}'
 
 
 async def execute_activity(
@@ -168,10 +187,18 @@ def _execute_activity_in_subprocess(
     target: Any = module
     for attribute_name in qualified_name.split('.'):
         target = getattr(target, attribute_name)
-    # No workflow context exists in the subprocess, so the @activity wrapper runs the raw body.
+    target = inspect.unwrap(target)
     started = time.perf_counter()
-    result = asyncio.run(target(*positional_arguments, **keyword_arguments))
-    return result, time.perf_counter() - started
+    try:
+        result = Context().run(lambda: asyncio.run(target(*positional_arguments, **keyword_arguments)))
+    except Exception as error:
+        raise ActivitySubprocessError(
+            original_type=type(error).__name__,
+            original_message=str(error),
+            traceback_text=''.join(traceback.format_exception(type(error), error, error.__traceback__)),
+        ) from None
+    duration_seconds = time.perf_counter() - started
+    return result, duration_seconds
 
 
 async def _handle_activity_failure(

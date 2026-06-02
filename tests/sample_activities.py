@@ -15,3 +15,14 @@ from temporal_light.decorators import activity
 @activity(retries=0, timeout=30)
 async def add_one_in_subprocess(value: int) -> dict[str, int]:
     return {'result': value + 1, 'pid': os.getpid()}
+
+
+class UnpickleableActivityError(Exception):
+    def __init__(self) -> None:
+        super().__init__('cannot pickle this error')
+        self.callback = lambda: None
+
+
+@activity(retries=0, timeout=30)
+async def raise_unpickleable_error() -> None:
+    raise UnpickleableActivityError()
