@@ -10,6 +10,7 @@ import time
 import traceback
 from collections.abc import Callable, Coroutine
 from concurrent.futures import Executor
+from concurrent.futures.process import BrokenProcessPool
 from contextvars import Context
 from datetime import datetime, timedelta, timezone
 from typing import Any, get_type_hints
@@ -174,7 +175,16 @@ async def _run_activity_body(
         positional_arguments,
         keyword_arguments,
     )
-    return await asyncio.wait_for(loop.run_in_executor(activity_executor, dispatch), timeout=timeout_seconds)
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(activity_executor, dispatch),
+            timeout=timeout_seconds,
+        )
+    except BrokenProcessPool:
+        mark_broken = getattr(activity_executor, 'mark_broken', None)
+        if callable(mark_broken):
+            mark_broken()
+        raise
 
 
 def _execute_activity_in_subprocess(

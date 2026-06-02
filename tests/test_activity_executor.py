@@ -1,16 +1,47 @@
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Executor, Future, ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+from typing import Any
 
 import pytest
 
-from sample_activities import raise_unpickleable_error
+from sample_activities import add_one_in_subprocess, raise_unpickleable_error
 from temporal_light.worker.context import WorkflowContext, _current_workflow_context
 from temporal_light.worker.executor import (
     ActivitySubprocessError,
     _execute_activity_in_subprocess,
     _run_activity_body,
 )
+
+
+class MarkableBrokenExecutor(Executor):
+    def __init__(self) -> None:
+        self.marked_broken = False
+
+    def submit(self, fn: Any, /, *args: Any, **kwargs: Any) -> Future[Any]:
+        future: Future[Any] = Future()
+        future.set_exception(BrokenProcessPool('pool died'))
+        return future
+
+    def mark_broken(self) -> None:
+        self.marked_broken = True
+
+
+@pytest.mark.asyncio
+async def test_activity_body_marks_executor_broken_after_broken_process_pool() -> None:
+    activity_executor = MarkableBrokenExecutor()
+
+    with pytest.raises(BrokenProcessPool):
+        await _run_activity_body(
+            activity_executor=activity_executor,
+            activity_function=add_one_in_subprocess,
+            positional_arguments=(41,),
+            keyword_arguments={},
+            timeout_seconds=5,
+        )
+
+    assert activity_executor.marked_broken is True
 
 
 @pytest.mark.asyncio

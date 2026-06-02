@@ -6,10 +6,10 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
-from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
 from ..db import connection
+from .activity_pool import RecoveringProcessPoolExecutor
 from .runner import WorkflowRunner
 from .scheduler import run_scheduler_loop
 
@@ -63,7 +63,7 @@ class Worker:
 
     async def _run_async(self) -> None:
         await connection.initialize_connection_pool(self.database_url)
-        activity_executor = ProcessPoolExecutor(max_workers=self.activity_pool_size)
+        activity_executor = RecoveringProcessPoolExecutor(max_workers=self.activity_pool_size)
         try:
             worker_identifier = str(uuid.uuid4())
             logger.info('Worker starting. id=%s', worker_identifier)
