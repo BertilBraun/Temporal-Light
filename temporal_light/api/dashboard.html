@@ -80,6 +80,21 @@ main { flex: 1; display: grid; grid-template-columns: 360px 1fr; overflow: hidde
 .b-waiting            { background:#fef9c3; color:#854d0e; }
 .b-workflow_completed { background:#d1fae5; color:#065f46; }
 .b-workflow_failed    { background:#fee2e2; color:#991b1b; }
+
+/* JSON tree */
+.json-tree { background:#f8fafc; border:1px solid #f1f5f9; border-radius:5px; padding:7px 9px; font-family: ui-monospace, monospace; font-size:0.72rem; line-height:1.5; color:#334155; white-space:pre-wrap; word-break:break-word; overflow-x:auto; }
+.json-tree .j-key  { color:#0550ae; }
+.json-tree .j-str  { color:#0a7d33; }
+.json-tree .j-num  { color:#9333ea; }
+.json-tree .j-bool,
+.json-tree .j-null { color:#64748b; }
+.json-tree .j-brace, .json-tree .j-dots, .json-tree .j-str { cursor:pointer; }
+.json-tree .j-brace:hover, .json-tree .j-dots:hover, .json-tree .j-str:hover { background:#e2e8f0; border-radius:3px; }
+.json-tree .j-dots { display:none; color:#94a3b8; }
+.json-tree .collapsed > .j-dots { display:inline; }
+.json-tree .j-obj.collapsed > .j-items,
+.json-tree .j-arr.collapsed > .j-items { display:none; }
+.json-tree .j-str.collapsed > .j-str-full { display:none; }
 </style>
 </head>
 <body>
@@ -264,10 +279,10 @@ function buildBody(data) {
   const parts = [];
 
   if (data.input !== undefined && data.input !== null)
-    parts.push(`<pre>${esc(JSON.stringify(data.input, null, 2))}</pre>`);
+    parts.push(jsonTree(data.input));
 
   if (data.result !== undefined)
-    parts.push(`<pre>${esc(JSON.stringify(data.result, null, 2))}</pre>`);
+    parts.push(jsonTree(data.result));
 
   if (data.error != null)
     parts.push(`<span class="ev-error">${esc(data.error)}</span>`);
@@ -295,6 +310,62 @@ function buildBody(data) {
 
   return parts.join('\n');
 }
+
+// ── Interactive JSON tree ───────────────────────────────────────────────────────
+// Every visible glyph (braces, quotes, keys, the "…" placeholders) is real text, so
+// native select-and-copy yields exactly the visible — possibly collapsed — JSON.
+// Collapsed subtrees are display:none, so they are excluded from selection and copy.
+
+function jsonTree(value) {
+  return `<div class="json-tree">${renderJsonNode(value, '')}</div>`;
+}
+
+function jsonInner(str) {
+  return esc(JSON.stringify(str).slice(1, -1));
+}
+
+function renderJsonNode(value, indent) {
+  if (value === null) return '<span class="j-null">null</span>';
+  if (Array.isArray(value)) return renderJsonArray(value, indent);
+  switch (typeof value) {
+    case 'object':  return renderJsonObject(value, indent);
+    case 'string':  return `<span class="j-str">"<span class="j-str-full">${jsonInner(value)}</span><span class="j-dots">…</span>"</span>`;
+    case 'number':  return `<span class="j-num">${esc(String(value))}</span>`;
+    case 'boolean': return `<span class="j-bool">${value}</span>`;
+    default:        return '<span class="j-null">null</span>';
+  }
+}
+
+function renderJsonObject(obj, indent) {
+  const keys = Object.keys(obj);
+  if (!keys.length) return '<span class="j-prim">{}</span>';
+  const inner = indent + '  ';
+  const rows = keys.map((k, i) => {
+    const comma = i < keys.length - 1 ? ',' : '';
+    return `${inner}<span class="j-key">"${jsonInner(k)}"</span>: ${renderJsonNode(obj[k], inner)}${comma}`;
+  }).join('\n');
+  return `<span class="j-obj"><span class="j-brace">{</span><span class="j-dots">…</span><span class="j-items">\n${rows}\n${indent}</span><span class="j-brace">}</span></span>`;
+}
+
+function renderJsonArray(arr, indent) {
+  if (!arr.length) return '<span class="j-prim">[]</span>';
+  const inner = indent + '  ';
+  const rows = arr.map((v, i) => {
+    const comma = i < arr.length - 1 ? ',' : '';
+    return `${inner}${renderJsonNode(v, inner)}${comma}`;
+  }).join('\n');
+  return `<span class="j-arr"><span class="j-brace">[</span><span class="j-dots">…</span><span class="j-items">\n${rows}\n${indent}</span><span class="j-brace">]</span></span>`;
+}
+
+document.getElementById('events-wrap').addEventListener('click', e => {
+  if (window.getSelection().toString()) return;  // a drag-select isn't a toggle
+  const brace = e.target.closest('.j-brace');
+  if (brace) { brace.parentElement.classList.toggle('collapsed'); return; }
+  const dots = e.target.closest('.j-dots');
+  if (dots) { dots.parentElement.classList.toggle('collapsed'); return; }
+  const str = e.target.closest('.j-str');
+  if (str) str.classList.toggle('collapsed');
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
