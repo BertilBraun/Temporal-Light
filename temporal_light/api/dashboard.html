@@ -271,8 +271,9 @@ function appendEventCard(data) {
   const body = div.querySelector('.ev-body');
   if (!body.innerHTML.trim()) body.remove();
 
+  const wasAtBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
   wrap.appendChild(div);
-  div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (wasAtBottom) div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function buildBody(data) {
