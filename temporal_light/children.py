@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar, overload
+
+from pydantic import BaseModel
 
 from .db import queries
 from .exceptions import ChildWorkflowFailedError, WorkflowSuspended
 from .models import CHILD_COMPLETED_SIGNAL_TYPE, EventRecord, EventType
 from .worker.context import _current_workflow_context
 
+ResultModel = TypeVar('ResultModel', bound=BaseModel)
 
-async def spawn_child(workflow_name: str, *, child_id: str | None = None, **kwargs: Any) -> str:
+
+async def spawn_child(workflow_name: str, **kwargs: Any) -> str:
     """Start a child workflow once and return its workflow id.
 
-    The child id is the idempotency key: create_child_workflow inserts it as the
-    workflows primary key, so two concurrent or replayed parent runs that resolve
-    the same id collapse to a single child. When child_id is omitted it defaults to
-    the parent id and step index; pass a stable business key when the parent's code
-    path before this call is not guaranteed deterministic.
+    The child id is the parent id and the spawning step index. That key is
+    deterministic across replay (find_child_started_event short-circuits a resumed
+    parent) and unique per call site, so it is also the idempotency key that
+    collapses concurrent parent runs to a single child.
     """
     workflow_context = _current_workflow_context.get()
     step_index = workflow_context.next_step_index()
@@ -26,7 +29,7 @@ async def spawn_child(workflow_name: str, *, child_id: str | None = None, **kwar
     if existing_child_started_event is not None:
         return existing_child_started_event.payload['child_id']
 
-    resolved_child_id = child_id or f'{workflow_context.workflow_id}:{step_index}'
+    resolved_child_id = f'{workflow_context.workflow_id}:{step_index}'
     await queries.create_child_workflow(
         parent_workflow_id=workflow_context.workflow_id,
         child_workflow_id=resolved_child_id,
@@ -35,6 +38,43 @@ async def spawn_child(workflow_name: str, *, child_id: str | None = None, **kwar
         parent_step_index=step_index,
     )
     return resolved_child_id
+
+
+@overload
+async def run_child(
+    workflow_name: str,
+    *,
+    return_type: type[ResultModel],
+    **kwargs: Any,
+) -> ResultModel: ...
+
+
+@overload
+async def run_child(
+    workflow_name: str,
+    *,
+    return_type: None = None,
+    **kwargs: Any,
+) -> dict[str, Any]: ...
+
+
+async def run_child(
+    workflow_name: str,
+    *,
+    return_type: type[ResultModel] | None = None,
+    **kwargs: Any,
+) -> ResultModel | dict[str, Any]:
+    """Spawn a child workflow and suspend until it completes, returning its result.
+
+    With return_type the dict payload is validated into that model; without it the
+    raw payload dict is returned.
+    """
+    child_id = await spawn_child(workflow_name, **kwargs)
+    child_result = await wait_for_child(child_id)
+    assert isinstance(child_result, dict), f'{workflow_name} must return a dict payload'
+    if return_type is not None:
+        return return_type.model_validate(child_result)
+    return child_result
 
 
 async def wait_for_child(child_id: str) -> Any:

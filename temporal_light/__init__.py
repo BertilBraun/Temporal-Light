@@ -1,4 +1,4 @@
-from .children import spawn_child, wait_for_child
+from .children import run_child, spawn_child, wait_for_child
 from .client import Client, WorkflowFailedError, WorkflowHandle
 from .decorators import activity, workflow
 from .exceptions import ChildWorkflowFailedError
@@ -14,6 +14,7 @@ __all__ = [
     'wait_for_signal',
     'spawn_child',
     'wait_for_child',
+    'run_child',
     'Client',
     'WorkflowHandle',
     'WorkflowFailedError',

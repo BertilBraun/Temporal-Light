@@ -5,9 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from temporal_light.children import CHILD_COMPLETED_SIGNAL_TYPE, wait_for_child
+from pydantic import BaseModel
+
+from temporal_light.children import CHILD_COMPLETED_SIGNAL_TYPE, run_child, wait_for_child
 from temporal_light.models import EventRecord, EventType
 from temporal_light.worker.context import WorkflowContext, _current_workflow_context
+
+
+class _ChildResult(BaseModel):
+    value: int
 
 
 def _make_child_signal(child_id: str, result: Any) -> EventRecord:
@@ -71,3 +77,33 @@ async def test_wait_for_child_returns_result_when_completion_wins_waiting_race(m
     assert result == {'ok': True}
     assert ('mark_waiting', ('parent-1', 'child-1')) in calls
     assert all(call[0] != 'update_workflow_status' for call in calls)
+
+
+async def test_run_child_returns_raw_payload_without_return_type(monkeypatch) -> None:
+    async def fake_spawn_child(workflow_name: str, **kwargs: Any) -> str:
+        return 'child-1'
+
+    async def fake_wait_for_child(child_id: str) -> Any:
+        return {'value': 7}
+
+    monkeypatch.setattr('temporal_light.children.spawn_child', fake_spawn_child)
+    monkeypatch.setattr('temporal_light.children.wait_for_child', fake_wait_for_child)
+
+    result = await run_child('child_flow', seed=1)
+
+    assert result == {'value': 7}
+
+
+async def test_run_child_validates_payload_into_return_type(monkeypatch) -> None:
+    async def fake_spawn_child(workflow_name: str, **kwargs: Any) -> str:
+        return 'child-1'
+
+    async def fake_wait_for_child(child_id: str) -> Any:
+        return {'value': 7}
+
+    monkeypatch.setattr('temporal_light.children.spawn_child', fake_spawn_child)
+    monkeypatch.setattr('temporal_light.children.wait_for_child', fake_wait_for_child)
+
+    result = await run_child('child_flow', return_type=_ChildResult)
+
+    assert result == _ChildResult(value=7)
