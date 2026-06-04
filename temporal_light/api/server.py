@@ -50,6 +50,7 @@ class WorkflowStatusResponse(BaseModel):
     workflow_id: str
     name: str
     status: str
+    parent_id: str | None
     created_at: str
     updated_at: str
 
@@ -161,6 +162,7 @@ def _workflow_record_to_response(record: WorkflowRecord) -> WorkflowStatusRespon
         workflow_id=record.workflow_id,
         name=record.name,
         status=record.status.value,
+        parent_id=record.parent_id,
         created_at=record.created_at.isoformat(),
         updated_at=record.updated_at.isoformat(),
     )

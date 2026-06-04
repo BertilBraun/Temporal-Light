@@ -86,14 +86,15 @@ async def create_child_workflow(
         inserted_child_id = await conn.fetchval(
             """
             INSERT INTO workflows
-                (workflow_id, name, status, run_at, created_at, updated_at)
-            VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+                (workflow_id, name, status, parent_id, run_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, NOW(), NOW(), NOW())
             ON CONFLICT (workflow_id) DO NOTHING
             RETURNING workflow_id
             """,
             child_workflow_id,
             child_workflow_name,
             WorkflowStatus.RUNNING.value,
+            parent_workflow_id,
         )
         if inserted_child_id is None:
             return False
@@ -193,6 +194,7 @@ async def claim_next_workflow(worker_identifier: str) -> WorkflowRecord | None:
             locked_until=locked_until,
             created_at=row['created_at'],
             updated_at=row['updated_at'],
+            parent_id=row['parent_id'],
         )
 
 
@@ -540,6 +542,7 @@ def _row_to_workflow_record(row: asyncpg.Record) -> WorkflowRecord:
         locked_until=row['locked_until'],
         created_at=row['created_at'],
         updated_at=row['updated_at'],
+        parent_id=row['parent_id'],
     )
 
 

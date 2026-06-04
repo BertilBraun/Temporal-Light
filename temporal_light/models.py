@@ -44,6 +44,7 @@ class WorkflowRecord:
     locked_until: datetime | None
     created_at: datetime
     updated_at: datetime
+    parent_id: str | None = None
 
 
 @dataclass(frozen=True)

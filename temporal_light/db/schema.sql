@@ -7,12 +7,15 @@ CREATE TABLE IF NOT EXISTS workflows (
     workflow_id  TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
     status       TEXT NOT NULL,
+    parent_id    TEXT REFERENCES workflows(workflow_id),
     run_at       TIMESTAMPTZ NOT NULL,
     locked_by    TEXT REFERENCES workers(worker_id),
     locked_until TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL,
     updated_at   TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES workflows(workflow_id);
 
 -- No UNIQUE constraint on (workflow_id, step_index, event_type): the retry
 -- model writes multiple 'failed' events at the same step_index, which would

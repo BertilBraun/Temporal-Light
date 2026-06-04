@@ -27,7 +27,11 @@ main { flex: 1; display: grid; grid-template-columns: 360px 1fr; overflow: hidde
 #workflow-list { flex: 1; overflow-y: auto; }
 .wf-row { padding: 11px 14px; border-bottom: 1px solid #f8fafc; cursor: pointer; transition: background 0.08s; }
 .wf-row:hover { background: #f8fafc; }
-.wf-row.active { background: #eff6ff; border-left: 3px solid #3b82f6; padding-left: 11px; }
+.wf-row.active { background: #eff6ff; box-shadow: inset 3px 0 0 #3b82f6; }
+.wf-toggle { width: 12px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 0.6rem; }
+.wf-toggle.has { cursor: pointer; }
+.wf-toggle.has::before { content: '▶'; transition: transform 0.12s; }
+.wf-toggle.has.open::before { transform: rotate(90deg); }
 .wf-row-top { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
 .wf-name { font-size: 0.875rem; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-row-bottom { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; color: #94a3b8; }
@@ -144,6 +148,8 @@ main { flex: 1; display: grid; grid-template-columns: 360px 1fr; overflow: hidde
 
 let selectedId = null;
 let activeEventSource = null;
+let lastWorkflows = [];
+const expandedIds = new Set();
 
 // ── List ──────────────────────────────────────────────────────────────────────
 
@@ -153,7 +159,8 @@ async function refresh() {
   try {
     const res = await fetch(`/workflows?${qs}`);
     if (!res.ok) return;
-    renderList(await res.json());
+    lastWorkflows = await res.json();
+    renderList(lastWorkflows);
   } catch (_) {}
 }
 
@@ -164,22 +171,58 @@ function renderList(workflows) {
     container.innerHTML = '<div class="placeholder">No workflows found.</div>';
     return;
   }
-  container.innerHTML = workflows.map(w => `
+  // A status filter would orphan matching children under hidden parents, so the
+  // tree only makes sense in the unfiltered view; fall back to a flat list otherwise.
+  const filtering = document.getElementById('status-filter').value;
+  container.innerHTML = filtering ? renderFlat(workflows) : renderTree(workflows);
+}
+
+function renderFlat(workflows) {
+  return workflows.map(w => rowHtml(w, 0, false)).join('');
+}
+
+function renderTree(workflows) {
+  const ids = new Set(workflows.map(w => w.workflow_id));
+  const childrenByParent = new Map();
+  for (const w of workflows) {
+    // A child whose parent fell outside the fetched window is shown as a root.
+    const parent = (w.parent_id && ids.has(w.parent_id)) ? w.parent_id : null;
+    if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+    childrenByParent.get(parent).push(w);
+  }
+  const byCreated = direction => (a, b) => direction * a.created_at.localeCompare(b.created_at);
+  const rows = [];
+  const walk = (node, depth) => {
+    const children = (childrenByParent.get(node.workflow_id) || []).sort(byCreated(1));
+    rows.push(rowHtml(node, depth, children.length > 0));
+    if (children.length && expandedIds.has(node.workflow_id)) {
+      for (const child of children) walk(child, depth + 1);
+    }
+  };
+  for (const root of (childrenByParent.get(null) || []).sort(byCreated(-1))) walk(root, 0);
+  return rows.join('');
+}
+
+function rowHtml(w, depth, hasChildren) {
+  const expanded = expandedIds.has(w.workflow_id);
+  const updated = fmtTime(w.updated_at) !== fmtTime(w.created_at) ? 'upd ' + fmtTime(w.updated_at) : '';
+  return `
     <div class="wf-row${w.workflow_id === selectedId ? ' active' : ''}"
          data-id="${esc(w.workflow_id)}"
          data-name="${esc(w.name)}"
-         data-status="${esc(w.status)}">
+         data-status="${esc(w.status)}"
+         style="padding-left:${14 + depth * 18}px">
       <div class="wf-row-top">
+        <span class="wf-toggle${hasChildren ? ' has' : ''}${expanded ? ' open' : ''}"></span>
         <span class="wf-name">${esc(w.name)}</span>
         <span class="badge b-${w.status}">${w.status}</span>
       </div>
       <div class="wf-row-bottom">
         <span class="wf-id">${w.workflow_id.slice(0, 8)}…</span>
         <span>${fmtTime(w.created_at)}</span>
-        <span>${fmtTime(w.updated_at) !== fmtTime(w.created_at) ? 'upd ' + fmtTime(w.updated_at) : ''}</span>
+        <span>${updated}</span>
       </div>
-    </div>
-  `).join('');
+    </div>`;
 }
 
 document.getElementById('workflow-list').addEventListener('click', e => {
@@ -187,6 +230,11 @@ document.getElementById('workflow-list').addEventListener('click', e => {
   if (!row) return;
   const { id, name, status } = row.dataset;
   openWorkflow(id, name, status);
+  if (row.querySelector('.wf-toggle.has')) {
+    if (expandedIds.has(id)) expandedIds.delete(id);
+    else expandedIds.add(id);
+    renderList(lastWorkflows);
+  }
 });
 
 document.getElementById('status-filter').addEventListener('change', refresh);
@@ -274,7 +322,7 @@ function appendEventCard(data) {
 
   const wasAtBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40;
   wrap.appendChild(div);
-  if (wasAtBottom) div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (wasAtBottom) wrap.scrollTop = wrap.scrollHeight;
 }
 
 function buildBody(data) {
