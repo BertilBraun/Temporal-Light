@@ -45,8 +45,9 @@ main { flex: 1; display: grid; grid-template-columns: 360px 1fr; overflow: hidde
 #detail-meta { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: #64748b; }
 #detail-id { font-family: ui-monospace, monospace; font-size: 0.72rem; }
 .live { display: flex; align-items: center; gap: 4px; color: #10b981; font-size: 0.72rem; font-weight: 500; }
-.live-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; animation: blink 1.4s ease-in-out infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+/* step-end, not ease-in-out: interpolated opacity pins Chrome's compositor vsync and freezes video on a 2nd monitor. */
+.live-dot { width: 6px; height: 6px; background: #10b981; border-radius: 50%; animation: blink 1.4s step-end infinite; }
+@keyframes blink { 0%,50%{opacity:1} 50.01%,100%{opacity:.25} }
 
 #events-wrap { flex: 1; overflow-y: auto; padding: 14px 20px; display: none; flex-direction: column; gap: 7px; }
 
