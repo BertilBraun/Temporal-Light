@@ -144,6 +144,82 @@ async def test_parent_spawns_multiple_children_once_and_waits_for_results(
     assert terminal.payload['result'] == [10, 20]
 
 
+async def test_child_workflow_can_spawn_and_wait_for_child_workflow(
+    clean_database: None,
+) -> None:
+    @workflow
+    async def leaf_flow(value: int) -> dict[str, int]:
+        return {'leaf': value * 10}
+
+    @workflow
+    async def middle_flow(value: int) -> dict[str, int]:
+        leaf_child_id = await spawn_child('leaf_flow', value=value + 1)
+        leaf_result = await wait_for_child(leaf_child_id)
+        return {'middle': leaf_result['leaf'] + 1}
+
+    @workflow
+    async def parent_flow() -> dict[str, int]:
+        middle_child_id = await spawn_child('middle_flow', value=4)
+        middle_result = await wait_for_child(middle_child_id)
+        return {'parent': middle_result['middle'] + 1}
+
+    await create_workflow('parent-1', 'parent_flow', {})
+    runner = WorkflowRunner(
+        {
+            'parent_flow': parent_flow,
+            'middle_flow': middle_flow,
+            'leaf_flow': leaf_flow,
+        }
+    )
+
+    await _run(runner, 'parent-1')
+    parent_record = await get_workflow('parent-1')
+    assert parent_record is not None
+    assert parent_record.status == WorkflowStatus.WAITING
+
+    parent_history = await load_event_history('parent-1')
+    middle_started = next(
+        event for event in parent_history if event.event_type == EventType.CHILD_STARTED
+    )
+    middle_child_id = middle_started.payload['child_id']
+
+    middle_record = await get_workflow(middle_child_id)
+    assert middle_record is not None
+    await runner.run_workflow(middle_record)
+    middle_record = await get_workflow(middle_child_id)
+    assert middle_record is not None
+    assert middle_record.status == WorkflowStatus.WAITING
+
+    middle_history = await load_event_history(middle_child_id)
+    leaf_started = next(
+        event for event in middle_history if event.event_type == EventType.CHILD_STARTED
+    )
+    leaf_child_id = leaf_started.payload['child_id']
+
+    leaf_record = await get_workflow(leaf_child_id)
+    assert leaf_record is not None
+    await runner.run_workflow(leaf_record)
+
+    middle_record = await get_workflow(middle_child_id)
+    assert middle_record is not None
+    assert middle_record.status == WorkflowStatus.RUNNING
+    await runner.run_workflow(middle_record)
+
+    parent_record = await get_workflow('parent-1')
+    assert parent_record is not None
+    assert parent_record.status == WorkflowStatus.RUNNING
+    await _run(runner, 'parent-1')
+
+    parent_record = await get_workflow('parent-1')
+    assert parent_record is not None
+    assert parent_record.status == WorkflowStatus.COMPLETED
+
+    parent_history = await load_event_history('parent-1')
+    terminal = parent_history[-1]
+    assert terminal.event_type == EventType.WORKFLOW_COMPLETED
+    assert terminal.payload['result'] == {'parent': 52}
+
+
 async def test_two_concurrent_parent_runs_spawn_a_single_child(
     clean_database: None,
 ) -> None:
